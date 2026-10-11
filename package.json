@@ -15,7 +15,8 @@
   "bin": {
     "btl-device-manager": "cli/btl-device-manager.js",
     "btl-printers": "cli/btl-printers.js",
-    "btl-displays": "cli/btl-displays.js"
+    "btl-displays": "cli/btl-displays.js",
+    "btl-vm": "cli/btl-vm.js"
   },
   "scripts": {
     "build": "node build.mjs",

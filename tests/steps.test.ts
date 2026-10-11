@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildSteps } from '../src/server/main.js';
 import { printersCommand } from '../src/server/paths.js';
-import type { Printer } from '../src/shared/types.js';
+import type { Printer, VirtualMachine } from '../src/shared/types.js';
 
 const discovered: Printer = {
   id: 'Example_L1234_Series',
@@ -21,10 +21,11 @@ const withQueue: Printer = {
   id: "it's",
   queue: { name: "it's", uri: discovered.uri!, state: 'idle', isDefault: false },
 };
-const known = [discovered, withQueue];
+const known = { printers: [discovered, withQueue], vms: [] };
 const ctx = (printers: string) => ({
   printers,
   displays: '/x/cli/btl-displays.js',
+  vm: '/x/cli/btl-vm.js',
   layouts: '/tmp/none',
 });
 
@@ -60,7 +61,7 @@ describe('buildSteps', () => {
     expect(() =>
       buildSteps(
         { action: 'printer-add', id: 'asleep' },
-        [{ ...discovered, id: 'asleep', discovered: false }],
+        { printers: [{ ...discovered, id: 'asleep', discovered: false }], vms: [] },
         ctx('x'),
       ),
     ).toThrow(/not seen/);
@@ -71,25 +72,69 @@ describe('buildSteps for displays', () => {
   const layouts = mkdtempSync(path.join(tmpdir(), 'btldm-layouts-'));
   const file = path.join(layouts, 'layout-1.json');
   writeFileSync(file, '{}');
-  const c = { printers: 'btl-printers', displays: '/x/cli/btl-displays.js', layouts };
+  const c = { ...ctx('btl-printers'), layouts };
+  const none = { printers: [], vms: [] };
 
   it('applies only a layout file from the server directory', () => {
-    expect(buildSteps({ action: 'display-apply', file }, [], c)).toEqual([
+    expect(buildSteps({ action: 'display-apply', file }, none, c)).toEqual([
       `/x/cli/btl-displays.js apply '${file}'`,
     ]);
-    expect(() => buildSteps({ action: 'display-apply', file: '/etc/passwd' }, [], c)).toThrow(
+    expect(() => buildSteps({ action: 'display-apply', file: '/etc/passwd' }, none, c)).toThrow(
       /not prepared/,
     );
     expect(() =>
-      buildSteps({ action: 'display-apply', file: path.join(layouts, 'missing.json') }, [], c),
+      buildSteps({ action: 'display-apply', file: path.join(layouts, 'missing.json') }, none, c),
     ).toThrow(/not prepared/);
     expect(() =>
       buildSteps(
         { action: 'display-apply', file: path.join(layouts, '..', 'layout-1.json') },
-        [],
+        none,
         c,
       ),
     ).toThrow(/not prepared/);
+  });
+});
+
+describe('buildSteps for virtual machines', () => {
+  const off: VirtualMachine = {
+    name: 'Example VM',
+    id: null,
+    state: 'shut off',
+    cpus: 4,
+    memoryMiB: 16384,
+    autostart: false,
+    persistent: true,
+    consoleWorkspace: null,
+  };
+  const up: VirtualMachine = { ...off, name: 'up', id: 3, state: 'running' };
+  const k = { printers: [], vms: [off, up] };
+  const c = ctx('btl-printers');
+
+  it('types the CLI without sudo and quotes the name', () => {
+    expect(buildSteps({ action: 'vm-start', name: 'Example VM' }, k, c)).toEqual([
+      "/x/cli/btl-vm.js start 'Example VM'",
+      "/x/cli/btl-vm.js console 'Example VM'",
+    ]);
+    expect(buildSteps({ action: 'vm-shutdown', name: 'up' }, k, c)).toEqual([
+      "/x/cli/btl-vm.js shutdown 'up'",
+    ]);
+    expect(buildSteps({ action: 'vm-poweroff', name: 'up' }, k, c)).toEqual([
+      "/x/cli/btl-vm.js poweroff 'up'",
+    ]);
+    expect(buildSteps({ action: 'vm-console', name: 'up' }, k, c)).toEqual([
+      "/x/cli/btl-vm.js console 'up'",
+    ]);
+  });
+
+  it('refuses unknown names and actions the state does not allow', () => {
+    expect(() => buildSteps({ action: 'vm-start', name: 'nope' }, k, c)).toThrow(/unknown virtual/);
+    expect(() => buildSteps({ action: 'vm-start', name: 'up' }, k, c)).toThrow(/is running/);
+    expect(() => buildSteps({ action: 'vm-console', name: 'Example VM' }, k, c)).toThrow(
+      /start it first/,
+    );
+    expect(() => buildSteps({ action: 'vm-shutdown', name: 'Example VM' }, k, c)).toThrow(
+      /is shut off/,
+    );
   });
 });
 

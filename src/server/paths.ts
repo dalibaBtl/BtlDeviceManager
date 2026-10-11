@@ -51,6 +51,12 @@ export function displaysCliPath(): string {
   return path.resolve(here, '..', 'cli', 'btl-displays.js');
 }
 
+/** Absolute path of `cli/btl-vm.js` in this clone. */
+export function vmCliPath(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, '..', 'cli', 'btl-vm.js');
+}
+
 /** Where the server stores layout files for `btl-displays apply <file>`. */
 export function layoutsDir(): string {
   return path.join(cacheDir(), 'layouts');

@@ -53,6 +53,13 @@ export type ServerMessage =
   | { type: 'printers'; items: Printer[]; scannedAt: number | null; error: string | null }
   | { type: 'scanning'; scanning: boolean }
   | { type: 'displays'; items: DisplayOutput[]; scannedAt: number | null; error: string | null }
+  | {
+      type: 'vms';
+      items: VirtualMachine[];
+      settings: VmSettings;
+      scannedAt: number | null;
+      error: string | null;
+    }
   | { type: 'term-data'; data: string }
   | { type: 'term-exit'; code: number }
   | { type: 'notice'; level: 'info' | 'error'; text: string };
@@ -67,7 +74,11 @@ export type TerminalAction =
   | { action: 'printer-default'; id: string }
   | { action: 'printer-test'; id: string }
   | { action: 'printer-remove'; id: string }
-  | { action: 'display-apply'; file: string };
+  | { action: 'display-apply'; file: string }
+  | { action: 'vm-start'; name: string }
+  | { action: 'vm-shutdown'; name: string }
+  | { action: 'vm-poweroff'; name: string }
+  | { action: 'vm-console'; name: string };
 
 /** Messages sent from client to server over the WebSocket. */
 export type ClientMessage =
@@ -167,5 +178,51 @@ export interface DisplayLayout {
 /** Result of one `btl-displays list --json` run. */
 export interface DisplayList {
   outputs: DisplayOutput[];
+  scannedAt: number;
+}
+
+// ---- virtual machines --------------------------------------------------------
+
+/** Domain state in libvirt's own words (`virsh dominfo`), plus `unknown` for anything new. */
+export type VmState =
+  | 'running'
+  | 'idle'
+  | 'paused'
+  | 'in shutdown'
+  | 'shut off'
+  | 'crashed'
+  | 'pmsuspended'
+  | 'unknown';
+
+/** One libvirt domain on the system connection (`qemu:///system`). */
+export interface VirtualMachine {
+  /** Domain name, the argument of every `virsh` command. */
+  name: string;
+  /** libvirt's numeric id while running; `null` when shut off. */
+  id: number | null;
+  state: VmState;
+  /** Virtual CPUs and maximum memory from `dominfo`; `null` when the field is missing. */
+  cpus: number | null;
+  memoryMiB: number | null;
+  /** Started by libvirt at boot. */
+  autostart: boolean;
+  /** Defined permanently rather than created for one run. */
+  persistent: boolean;
+  /**
+   * Workspace this machine's console window is moved to, or `null` to leave it
+   * where it opens. Stored as a sway variable in `~/.config/sway/config.d/vm.conf`.
+   */
+  consoleWorkspace: string | null;
+}
+
+/** What the console workspace can be chosen from: names in the sway config plus the live ones. */
+export interface VmSettings {
+  workspaces: string[];
+}
+
+/** Result of one `btl-vm list --json` run. */
+export interface VmList {
+  vms: VirtualMachine[];
+  settings: VmSettings;
   scannedAt: number;
 }

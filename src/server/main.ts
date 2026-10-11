@@ -14,14 +14,25 @@ import type {
   Printer,
   ServerMessage,
   TerminalAction,
+  VirtualMachine,
+  VmSettings,
 } from '../shared/types.js';
-import { CliSource, parseList, runCli, watchCups, watchSwayOutputs } from './cli-source.js';
+import { isDown, isUp } from '../vm/virsh.js';
+import {
+  CliSource,
+  parseList,
+  runCli,
+  watchCups,
+  watchSwayOutputs,
+  watchVirshEvents,
+} from './cli-source.js';
 import {
   cacheDir,
   displaysCliPath,
   layoutsDir,
   printersCliPath,
   printersCommand,
+  vmCliPath,
 } from './paths.js';
 import { Terminal, shellQuote } from './terminal.js';
 
@@ -60,6 +71,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     printersCli: printersCliPath(),
     printersCommand: printersCommand(),
     displaysCli: displaysCliPath(),
+    vmCli: vmCliPath(),
   });
   const server = http.createServer((req, res) => {
     handleHttp(app, token, opts.webDir, req, res).catch((e: unknown) => {
@@ -118,7 +130,10 @@ interface AppPaths {
   /** `btl-printers` or the absolute script path; see {@link printersCommand}. */
   printersCommand: string;
   displaysCli: string;
+  vmCli: string;
 }
+
+const NO_VM_SETTINGS: VmSettings = { workspaces: [] };
 
 /**
  * In-memory model shared by all clients: the printer and display lists and
@@ -130,9 +145,16 @@ class App {
   private clients = new Set<Client>();
   private printers: Listing<Printer> = { items: [], scannedAt: null, error: null };
   private displays: Listing<DisplayOutput> = { items: [], scannedAt: null, error: null };
+  private vms: Listing<VirtualMachine> & { settings: VmSettings } = {
+    items: [],
+    scannedAt: null,
+    error: null,
+    settings: NO_VM_SETTINGS,
+  };
   private scanning = false;
   private readonly printerSource: CliSource<Printer>;
   private readonly displaySource: CliSource<DisplayOutput>;
+  private readonly vmSource: CliSource<VirtualMachine>;
   private refreshTimer: NodeJS.Timeout | null = null;
 
   onClientCountChange: (n: number) => void = () => undefined;
@@ -159,6 +181,15 @@ class App {
       this.displays = { items, scannedAt, error };
       this.broadcast({ type: 'displays', ...this.displays });
     };
+
+    this.vmSource = new CliSource(
+      paths.vmCli,
+      parseList('vms', (v): v is VirtualMachine => typeof (v as VirtualMachine)?.name === 'string'),
+    );
+    this.vmSource.onUpdate = (items, scannedAt, error, data) => {
+      this.vms = { items, scannedAt, error, settings: vmSettings(data.settings) };
+      this.broadcast({ type: 'vms', ...this.vms });
+    };
   }
 
   /** Only the printer scan is slow enough to show; display reads take milliseconds. */
@@ -170,8 +201,10 @@ class App {
   start(): void {
     void this.printerSource.refresh();
     void this.displaySource.refresh();
+    void this.vmSource.refresh();
     this.printerSource.watch(watchCups);
     this.displaySource.watch(watchSwayOutputs);
+    this.vmSource.watch(watchVirshEvents);
     this.refreshTimer = setInterval(() => void this.printerSource.refresh(), REFRESH_INTERVAL);
   }
 
@@ -179,6 +212,7 @@ class App {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     this.printerSource.stop();
     this.displaySource.stop();
+    this.vmSource.stop();
     for (const c of this.clients) {
       c.terminal?.kill();
       c.ws.close();
@@ -199,6 +233,30 @@ class App {
 
   displaysSnapshot(): Listing<DisplayOutput> {
     return this.displays;
+  }
+
+  refreshVms(): Promise<void> {
+    return this.vmSource.refresh();
+  }
+
+  vmsSnapshot(): Listing<VirtualMachine> & { settings: VmSettings } {
+    return this.vms;
+  }
+
+  /**
+   * Stores where one machine's console window goes. Direct, like
+   * {@link moveWorkspace}: it writes one line into the user's own sway config
+   * and cannot need root. Both names must come from the current listing.
+   */
+  async setConsoleWorkspace(name: string, workspace: string | null): Promise<void> {
+    if (!this.vms.items.some((v) => v.name === name)) {
+      throw new Error('unknown virtual machine; refresh and try again');
+    }
+    if (workspace !== null && !this.vms.settings.workspaces.includes(workspace)) {
+      throw new Error(`no workspace called ${workspace}; refresh and try again`);
+    }
+    await runCli(this.paths.vmCli, ['console-workspace', name, workspace ?? '--none']);
+    await this.vmSource.refresh();
   }
 
   /**
@@ -246,6 +304,7 @@ class App {
     this.onClientCountChange(this.clients.size);
     this.send(client, { type: 'printers', ...this.printers });
     this.send(client, { type: 'displays', ...this.displays });
+    this.send(client, { type: 'vms', ...this.vms });
     this.send(client, { type: 'scanning', scanning: this.scanning });
 
     ws.on('message', (raw) => {
@@ -300,11 +359,16 @@ class App {
       case 'term-run':
         if (!client.terminal) throw new Error('terminal is not open');
         client.terminal.runChain(
-          buildSteps(msg.run, this.printers.items, {
-            printers: this.paths.printersCommand,
-            displays: this.paths.displaysCli,
-            layouts: layoutsDir(),
-          }),
+          buildSteps(
+            msg.run,
+            { printers: this.printers.items, vms: this.vms.items },
+            {
+              printers: this.paths.printersCommand,
+              displays: this.paths.displaysCli,
+              vm: this.paths.vmCli,
+              layouts: layoutsDir(),
+            },
+          ),
         );
         break;
     }
@@ -315,16 +379,23 @@ class App {
 export interface StepContext {
   printers: string;
   displays: string;
+  vm: string;
   layouts: string;
+}
+
+/** The last listings, which every typed action is checked against. */
+export interface Known {
+  printers: Printer[];
+  vms: VirtualMachine[];
 }
 
 /**
  * Translates a terminal action into the shell line the user will see. A
- * printer id must come from the current list and a layout file from the
- * server's own directory, so the terminal only ever runs the CLIs on something
- * the server has produced or reported, never on client-supplied text.
+ * printer or machine name must come from the current list and a layout file
+ * from the server's own directory, so the terminal only ever runs the CLIs on
+ * something the server has produced or reported, never on client-supplied text.
  */
-export function buildSteps(run: TerminalAction, known: Printer[], ctx: StepContext): string[] {
+export function buildSteps(run: TerminalAction, known: Known, ctx: StepContext): string[] {
   if (run.action === 'display-apply') {
     const file = path.resolve(run.file);
     if (path.dirname(file) !== path.resolve(ctx.layouts) || !existsSync(file)) {
@@ -332,7 +403,8 @@ export function buildSteps(run: TerminalAction, known: Printer[], ctx: StepConte
     }
     return [`${ctx.displays} apply ${shellQuote(file)}`];
   }
-  const printer = known.find((p) => p.id === run.id);
+  if ('name' in run) return vmSteps(run, known.vms, ctx.vm);
+  const printer = known.printers.find((p) => p.id === run.id);
   if (!printer) throw new Error('unknown printer; refresh the list and try again');
   const id = shellQuote(printer.id);
   const cli = ctx.printers;
@@ -355,6 +427,43 @@ export function buildSteps(run: TerminalAction, known: Printer[], ctx: StepConte
 
 function requireQueue(printer: Printer): void {
   if (!printer.queue) throw new Error(`${printer.name} has no queue yet`);
+}
+
+type VmAction = Extract<TerminalAction, { name: string }>;
+
+/**
+ * The VM actions; none needs root, each is typed so a guest that refuses says
+ * why in view. Start goes straight on to the console: a machine is started to
+ * be used, and the console is where that happens.
+ */
+function vmSteps(run: VmAction, known: VirtualMachine[], cli: string): string[] {
+  const vm = known.find((v) => v.name === run.name);
+  if (!vm) throw new Error('unknown virtual machine; refresh the list and try again');
+  const name = shellQuote(vm.name);
+  switch (run.action) {
+    case 'vm-start':
+      if (!isDown(vm)) throw new Error(`${vm.name} is ${vm.state}`);
+      return [`${cli} start ${name}`, `${cli} console ${name}`];
+    case 'vm-shutdown':
+      if (!isUp(vm)) throw new Error(`${vm.name} is ${vm.state}`);
+      return [`${cli} shutdown ${name}`];
+    case 'vm-poweroff':
+      if (!isUp(vm)) throw new Error(`${vm.name} is ${vm.state}`);
+      return [`${cli} poweroff ${name}`];
+    case 'vm-console':
+      if (!isUp(vm)) throw new Error(`${vm.name} is ${vm.state}; start it first`);
+      return [`${cli} console ${name}`];
+  }
+}
+
+/** Validates the `settings` object of `btl-vm list --json`; a malformed one yields the defaults. */
+function vmSettings(v: unknown): VmSettings {
+  const s = v as Partial<VmSettings> | undefined;
+  return {
+    workspaces: Array.isArray(s?.workspaces)
+      ? s.workspaces.filter((w): w is string => typeof w === 'string')
+      : [],
+  };
 }
 
 // ---- HTTP ------------------------------------------------------------------
@@ -402,6 +511,23 @@ async function handleHttp(
     case 'POST /api/displays/prepare': {
       const body = await readJson(req);
       sendJson(res, 200, await app.prepareLayout(body.layout as DisplayLayout));
+      return;
+    }
+    case 'GET /api/vms':
+      sendJson(res, 200, app.vmsSnapshot());
+      return;
+    case 'POST /api/vms/refresh':
+      await app.refreshVms();
+      sendJson(res, 200, app.vmsSnapshot());
+      return;
+    case 'POST /api/vms/console-workspace': {
+      const body = await readJson(req);
+      if (typeof body.name !== 'string') throw new Error('missing name');
+      if (body.workspace !== null && typeof body.workspace !== 'string') {
+        throw new Error('workspace must be a string or null');
+      }
+      await app.setConsoleWorkspace(body.name, body.workspace);
+      sendJson(res, 200, app.vmsSnapshot());
       return;
     }
     default:

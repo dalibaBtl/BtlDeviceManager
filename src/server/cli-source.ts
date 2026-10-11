@@ -10,8 +10,17 @@ const LIST_TIMEOUT_MS = 20_000;
  * shows is exactly what the user would get from the CLI over SSH.
  */
 export class CliSource<T> {
-  /** Called with every fresh list, or with the error when the CLI failed. */
-  onUpdate: (items: T[], scannedAt: number | null, error: string | null) => void = () => undefined;
+  /**
+   * Called with every fresh list, or with the error when the CLI failed.
+   * `data` is the whole JSON object the CLI printed, for the few fields that
+   * are not list items (the VM console setting); empty on failure.
+   */
+  onUpdate: (
+    items: T[],
+    scannedAt: number | null,
+    error: string | null,
+    data: Record<string, unknown>,
+  ) => void = () => undefined;
   onScanning: (scanning: boolean) => void = () => undefined;
 
   private running: Promise<void> | null = null;
@@ -19,7 +28,11 @@ export class CliSource<T> {
 
   constructor(
     private readonly cliPath: string,
-    private readonly parse: (json: string) => { items: T[]; scannedAt: number },
+    private readonly parse: (json: string) => {
+      items: T[];
+      scannedAt: number;
+      data: Record<string, unknown>;
+    },
   ) {}
 
   /** Registers an external trigger (file watch, event stream) that calls {@link refresh}. */
@@ -47,9 +60,9 @@ export class CliSource<T> {
   private async scan(): Promise<void> {
     try {
       const parsed = this.parse(await runCli(this.cliPath, ['list', '--json']));
-      this.onUpdate(parsed.items, parsed.scannedAt, null);
+      this.onUpdate(parsed.items, parsed.scannedAt, null, parsed.data);
     } catch (e) {
-      this.onUpdate([], null, e instanceof Error ? e.message : String(e));
+      this.onUpdate([], null, e instanceof Error ? e.message : String(e), {});
     }
   }
 }
@@ -71,13 +84,14 @@ export function runCli(cliPath: string, args: string[]): Promise<string> {
 
 /** Validates the CLI's JSON just enough to not crash the UI on a half-written line. */
 export function parseList<T>(key: string, isItem: (v: unknown) => v is T) {
-  return (text: string): { items: T[]; scannedAt: number } => {
+  return (text: string): { items: T[]; scannedAt: number; data: Record<string, unknown> } => {
     const data = JSON.parse(text) as Record<string, unknown>;
     const list = data[key];
     if (!Array.isArray(list)) throw new Error(`CLI returned no "${key}" list`);
     return {
       items: list.filter(isItem),
       scannedAt: typeof data.scannedAt === 'number' ? data.scannedAt : Date.now(),
+      data,
     };
   };
 }
@@ -108,14 +122,31 @@ export function watchCups(onChange: () => void): () => void {
  * (reload) and given up when `swaymsg` is not there at all.
  */
 export function watchSwayOutputs(onChange: () => void): () => void {
-  return debounced(500, onChange, (fire) => {
+  return followStream('swaymsg', ['-t', 'subscribe', '["output"]', '-m'], 500, onChange);
+}
+
+/**
+ * Follows libvirt's lifecycle events (`virsh event --all --loop`), one line per
+ * event, so a guest started or stopped elsewhere (the terminal, a timer, the
+ * guest itself) is reflected without a Refresh click. The content of the line
+ * does not matter; any event means the list may have changed.
+ */
+export function watchVirshEvents(onChange: () => void): () => void {
+  return followStream('virsh', ['-c', 'qemu:///system', 'event', '--all', '--loop'], 500, onChange);
+}
+
+/**
+ * Keeps a long-lived event stream running: any output fires (debounced), the
+ * process is restarted when it ends (sway reload, libvirtd restart) and given
+ * up when the program is not there at all.
+ */
+function followStream(cmd: string, args: string[], ms: number, onChange: () => void): () => void {
+  return debounced(ms, onChange, (fire) => {
     let child: ChildProcess | null = null;
     let stopped = false;
     const start = () => {
       if (stopped) return;
-      child = spawn('swaymsg', ['-t', 'subscribe', '["output"]', '-m'], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
+      child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'] });
       child.stdout?.on('data', () => fire());
       child.on('error', () => {
         stopped = true;
