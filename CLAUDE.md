@@ -33,16 +33,16 @@ architecture applied to a different job.
 When you are unsure how something should look, **read bgcm's source instead of
 guessing**:
 
-| Question | Where to look in bgcm |
-|---|---|
-| Three-process design and why | `docs/adr/0002-node-server-with-browser-app-window.md` |
-| Server hub, state, snapshot replay | `src/server/main.ts` |
-| Token auth, path validation | `src/server/main.ts` (`assertRepo`, the `t` parameter) |
-| Typing commands into the pty | `src/server/terminal.ts`, `App.buildSteps` |
-| Signals, actions, server messages | `src/web/state.ts` |
-| Launcher, detach, app window | `cli/bgcm.js` |
-| Desktop entry with absolute paths | `scripts/install-desktop.mjs` |
-| UI rendered without a browser | `tests/ui.test.tsx` |
+| Question                           | Where to look in bgcm                                  |
+| ---------------------------------- | ------------------------------------------------------ |
+| Three-process design and why       | `docs/adr/0002-node-server-with-browser-app-window.md` |
+| Server hub, state, snapshot replay | `src/server/main.ts`                                   |
+| Token auth, path validation        | `src/server/main.ts` (`assertRepo`, the `t` parameter) |
+| Typing commands into the pty       | `src/server/terminal.ts`, `App.buildSteps`             |
+| Signals, actions, server messages  | `src/web/state.ts`                                     |
+| Launcher, detach, app window       | `cli/bgcm.js`                                          |
+| Desktop entry with absolute paths  | `scripts/install-desktop.mjs`                          |
+| UI rendered without a browser      | `tests/ui.test.tsx`                                    |
 
 Diverge where the job differs, but say why in a comment or an ADR — not
 silently.
@@ -52,7 +52,9 @@ silently.
 The most important rule in the app, inherited from bgcm:
 
 - **Direct** (`execFile`, output parsed): reads that can never prompt —
-  `avahi-browse`, `lpstat`, `lpinfo`, `swaymsg -t get_outputs`, `virsh list`.
+  `avahi-browse`, `lpstat`, `driverless list`, `swaymsg -t get_outputs`,
+  `virsh list`. Not `lpinfo`: it needs the `lpadmin` group and answers
+  `Forbidden` to a plain user.
 - **Typed into the terminal**: anything needing `sudo` or able to fail in an
   interesting way — `lpadmin`, firewall changes, starting a VM.
 
@@ -94,13 +96,29 @@ npm run format
 
 Debian 13 (trixie), sway on Wayland, installed and configured by the `desktop`
 role in `btl-infra`. That role also installs this app, the same way it installs
-bgcm: clone, `npm ci`, `npm run build`, `npm run install-desktop`.
+bgcm: clone, `npm ci`, `npm run build`; the launcher entry the app writes
+itself on first start (`scripts/install-desktop.mjs`), unlike bgcm.
 
 Assume CUPS, `avahi-daemon` and `libnss-mdns` are present — the role puts them
 there. Do not install packages from the app.
 
 ## State of the repository
 
-Empty apart from `docs/IDEA.md` and this file. The first slice is the skeleton
-plus the `Printers` panel; build the skeleton by reading bgcm's, not from
-memory of how such an app is usually written.
+First slice done: the skeleton and the `Printers` panel. `docs/adr/0001` says
+where and why it diverges from bgcm.
+
+- `src/printers/` is the `btl-printers` CLI (`cli/btl-printers.js` loads the
+  built `dist/printers-cli.js`): `avahi.ts`, `cups.ts` parse command output,
+  `model.ts` merges discovered printers with queues, `cli.ts` is the entry.
+  The server runs `btl-printers list --json`; it has no CUPS knowledge.
+- `src/server/main.ts` is the hub; `buildSteps` validates a printer id against
+  the last listing and returns the line typed into the terminal.
+  `paths.ts#printersCommand` decides between `btl-printers` (when
+  `/usr/local/bin/btl-printers` links to this clone) and the absolute path.
+- `src/web/` has one panel so far; `Nav.tsx` lists `PANELS` from `state.ts`.
+  Add a panel by adding its id there and a component in `main.tsx`.
+- Tests use documentation names and addresses (`printer-1234.local`,
+  `192.0.2.x`); keep it that way, the repo is public.
+
+Next slices per `docs/IDEA.md`: `Displays`, `Virtual machine`, `Status`, each
+as its own CLI plus panel.
