@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { Printer, ServerMessage, TerminalAction } from '../shared/types.js';
+import type { DisplayOutput, Printer, ServerMessage, TerminalAction } from '../shared/types.js';
 import { api, socket } from './api.js';
 
 /**
@@ -8,8 +8,11 @@ import { api, socket } from './api.js';
  */
 
 /** The panels in the left navigation; one per feature, in the order they appear. */
-export type Panel = 'printers';
-export const PANELS: { id: Panel; label: string }[] = [{ id: 'printers', label: 'Printers' }];
+export type Panel = 'printers' | 'displays';
+export const PANELS: { id: Panel; label: string }[] = [
+  { id: 'printers', label: 'Printers' },
+  { id: 'displays', label: 'Displays' },
+];
 export const selectedPanel = signal<Panel>('printers');
 
 export const printers = signal<Printer[]>([]);
@@ -18,6 +21,10 @@ export const scannedAt = signal<number | null>(null);
 /** The CLI's error text when the last scan failed, shown instead of an empty list. */
 export const printersError = signal<string | null>(null);
 export const scanning = signal(false);
+
+export const displays = signal<DisplayOutput[]>([]);
+export const displaysError = signal<string | null>(null);
+export const displaysScannedAt = signal<number | null>(null);
 
 export interface Notice {
   id: number;
@@ -69,6 +76,11 @@ export function applyServerMessage(msg: ServerMessage): void {
       break;
     case 'scanning':
       scanning.value = msg.scanning;
+      break;
+    case 'displays':
+      displays.value = msg.items;
+      displaysScannedAt.value = msg.scannedAt;
+      displaysError.value = msg.error;
       break;
     case 'notice':
       notify(msg.level, msg.text);

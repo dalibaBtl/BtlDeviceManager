@@ -236,7 +236,7 @@ table.printers td.actions button {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
-  width: 480px;
+  width: 720px;
   max-width: 95vw;
   display: flex;
   flex-direction: column;
@@ -278,4 +278,80 @@ table.printers td.actions button {
 }
 .notice.error {
   border-left-color: var(--danger);
+}
+
+/* displays */
+.canvas {
+  display: block;
+  margin: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-width: calc(100% - 20px);
+  user-select: none;
+}
+.canvas .display rect {
+  fill: var(--bg-selected);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  cursor: grab;
+}
+.canvas .display.dragging rect {
+  cursor: grabbing;
+  fill: #34507a;
+}
+.canvas .display.bad rect {
+  stroke: var(--danger);
+}
+.canvas .display text {
+  fill: var(--fg);
+  font: 600 13px var(--sans);
+  pointer-events: none;
+}
+.canvas .display text.small {
+  fill: var(--fg-dim);
+  font: 11px var(--mono);
+}
+table.displays {
+  width: 100%;
+  border-collapse: collapse;
+}
+table.displays th,
+table.displays td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+table.displays th {
+  color: var(--fg-dim);
+  font-weight: 500;
+  font-size: 12px;
+}
+table.displays td.name {
+  font-weight: 600;
+}
+table.displays tr.away td {
+  color: var(--fg-dim);
+}
+table.displays td .meta {
+  font-weight: 400;
+}
+select.mode {
+  background: var(--bg-hover);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font: inherit;
+}
+.hint {
+  padding: 8px 12px;
+}
+.dialog p {
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  max-height: 50vh;
+  overflow: auto;
 }

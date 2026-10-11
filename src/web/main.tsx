@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { socket } from './api.js';
 import { Dialogs } from './components/Dialogs.jsx';
 import { Nav } from './components/Nav.jsx';
+import { DisplaysPanel } from './components/DisplaysPanel.jsx';
 import { PrintersPanel } from './components/PrintersPanel.jsx';
 import { TerminalPane } from './components/TerminalPane.jsx';
 import { applyServerMessage, notices, selectedPanel } from './state.js';
@@ -82,6 +83,7 @@ function App() {
       <Splitter axis="x" onMove={(d) => setNav(Math.min(MAX_NAV, Math.max(MIN_NAV, nav + d)))} />
       <div class="middle" style={{ gridTemplateRows: `minmax(${MIN_PANEL}px, 1fr) 6px ${term}px` }}>
         {selectedPanel.value === 'printers' && <PrintersPanel />}
+        {selectedPanel.value === 'displays' && <DisplaysPanel />}
         <Splitter axis="y" onMove={(d) => setTerm(Math.max(MIN_TERM, term - d))} />
         <TerminalPane />
       </div>

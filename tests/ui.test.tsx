@@ -118,3 +118,75 @@ describe('helpers', () => {
     expect(printerStatus(found).cls).toBe('new');
   });
 });
+
+describe('DisplaysPanel', () => {
+  const laptop = {
+    name: 'eDP-1',
+    identifier: 'Example Display Corp. PANEL14-0  Unknown',
+    make: 'Example Display Corp.',
+    model: 'PANEL14-0 ',
+    serial: 'Unknown',
+    enabled: true,
+    x: 0,
+    y: 240,
+    width: 1920,
+    height: 1200,
+    mode: { width: 1920, height: 1200, refresh: 60000 },
+    modes: [{ width: 1920, height: 1200, refresh: 60000 }],
+    scale: 1,
+    transform: 'normal' as const,
+    focused: true,
+  };
+  const external = {
+    ...laptop,
+    name: 'HDMI-A-1',
+    identifier: 'Example UW3440 SN0000001',
+    x: 1920,
+    y: 0,
+    width: 3440,
+    height: 1440,
+    mode: { width: 3440, height: 1440, refresh: 100000 },
+    modes: [{ width: 3440, height: 1440, refresh: 100000 }],
+    focused: false,
+  };
+
+  it('draws one rectangle per enabled display and a row per display', async () => {
+    const state = await import('../src/web/state.js');
+    const { DisplaysPanel } = await import('../src/web/components/DisplaysPanel.jsx');
+    state.displays.value = [
+      laptop,
+      { ...external, enabled: false, x: 0, y: 0, width: 0, height: 0 },
+    ];
+    const html = render(<DisplaysPanel />);
+    expect(html.match(/<rect /g)).toHaveLength(1);
+    expect(html).toContain('eDP-1');
+    expect(html).toContain('HDMI-A-1');
+    expect(html).toContain('3440×1440 @ 100 Hz');
+    expect(html).toContain('Example UW3440 SN0000001');
+    expect(html).not.toContain('unsaved changes');
+  });
+
+  it('shows the read error instead of an empty canvas', async () => {
+    const state = await import('../src/web/state.js');
+    const { DisplaysPanel } = await import('../src/web/components/DisplaysPanel.jsx');
+    state.displays.value = [];
+    state.displaysError.value = 'swaymsg: not found';
+    const html = render(<DisplaysPanel />);
+    expect(html).toContain('Could not read displays');
+    state.displaysError.value = null;
+  });
+
+  it('fits the arrangement into the canvas width', async () => {
+    const { fitToCanvas } = await import('../src/web/components/DisplaysPanel.jsx');
+    const fit = fitToCanvas(
+      [
+        { x: 0, y: 240, width: 1920, height: 1200 },
+        { x: 1920, y: 0, width: 3440, height: 1440 },
+      ],
+      720,
+      24,
+    );
+    expect(fit.k).toBeCloseTo((720 - 48) / 5360, 5);
+    expect(fit.height).toBe(Math.ceil(1440 * fit.k) + 48);
+  });
+});
