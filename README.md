@@ -1,13 +1,13 @@
 # BTL Manager
 
 Desktop app for the person sitting at a BTL workstation (Debian 13, sway) to
-manage **that one machine** without a terminal: printers first; displays, the
-Windows VM and a status panel follow.
+manage **that one machine** without a terminal: printers and displays today;
+the Windows VM and a status panel follow.
 
 ```text
 ┌────────────┬──────────────────────────────────────────────┐
 │ Printers   │ Printer      Model     Address   Status      │
-│ (Displays) │ …            …         …         [Initialize]│
+│ Displays   │ …            …         …         [Initialize]│
 │ (VM)       ├──────────────────────────────────────────────┤
 │ (Status)   │ Terminal                                     │
 └────────────┴──────────────────────────────────────────────┘
@@ -103,6 +103,34 @@ lpadmin -p <id> -E -v 'ipp://<host>:631/ipp/print' -m 'driverless:ipp://<host>:6
 which makes cups-filters generate a real PPD from the printer's IPP
 attributes. The CLI prints that line before running it. A queue created the
 wrong way can be removed from the panel and initialized again.
+
+## Displays
+
+The panel draws the enabled displays as rectangles you drag into place; edges
+snap together so the mouse crosses between monitors without a gap. Below it,
+each display has its mode, scale (1, 1.25, 1.5, 2), rotation and an Enabled
+switch. **Apply…** shows the current `~/.config/sway/config.d/outputs.conf`
+next to the file that would replace it; after confirming, the terminal runs
+
+```bash
+btl-displays apply ~/.cache/btl-manager/layouts/layout-<timestamp>.json
+```
+
+which writes the file, validates the whole sway config (`sway -C`) and runs
+`swaymsg reload`. Nothing here needs `sudo`. The file is rewritten entirely;
+hand-written comments in it do not survive, which is why the dialog shows it
+first.
+
+Displays are matched by sway's `"make model serial"` identifier, not by
+connector name, so the arrangement holds when a cable moves to another port.
+Hotplug events (`swaymsg -t subscribe`) redraw the panel on their own; the
+headless output used for streaming is hidden because the role manages it.
+
+```bash
+btl-displays list [--json]
+btl-displays preview layout.json     # the outputs.conf a layout would produce
+btl-displays config                  # the current outputs.conf
+```
 
 ## Development
 

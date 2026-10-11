@@ -104,21 +104,31 @@ there. Do not install packages from the app.
 
 ## State of the repository
 
-First slice done: the skeleton and the `Printers` panel. `docs/adr/0001` says
-where and why it diverges from bgcm.
+Done: the skeleton, the `Printers` panel and the `Displays` panel.
+`docs/adr/0001` says where and why it diverges from bgcm.
 
 - `src/printers/` is the `btl-printers` CLI (`cli/btl-printers.js` loads the
   built `dist/printers-cli.js`): `avahi.ts`, `cups.ts` parse command output,
   `model.ts` merges discovered printers with queues, `cli.ts` is the entry.
   The server runs `btl-printers list --json`; it has no CUPS knowledge.
-- `src/server/main.ts` is the hub; `buildSteps` validates a printer id against
-  the last listing and returns the line typed into the terminal.
-  `paths.ts#printersCommand` decides between `btl-printers` (when
-  `/usr/local/bin/btl-printers` links to this clone) and the absolute path.
-- `src/web/` has one panel so far; `Nav.tsx` lists `PANELS` from `state.ts`.
-  Add a panel by adding its id there and a component in `main.tsx`.
+- `src/displays/` is the `btl-displays` CLI: `sway.ts` parses `get_outputs`
+  (identifier is `"make model serial"` verbatim, `HEADLESS-*` hidden),
+  `geometry.ts` is shared with the canvas (logical size, snapping, overlap),
+  `config.ts` renders and validates `outputs.conf`. `apply <layout.json>`
+  writes the file, runs `sway -C` and `swaymsg reload`; the server writes the
+  layout file under `~/.cache/btl-manager/layouts/` and types the command.
+- `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
+  for each feature and holds the watchers (`/etc/cups`, `swaymsg -t
+subscribe`). `buildSteps` validates a printer id against the last listing,
+  or a layout file against the server's own directory, and returns the line
+  typed into the terminal. `paths.ts#printersCommand` decides between
+  `btl-printers` (when `/usr/local/bin/btl-printers` links to this clone) and
+  the absolute path.
+- `src/web/`: `Nav.tsx` lists `PANELS` from `state.ts`; add a panel by adding
+  its id there and a component in `main.tsx`. `DisplaysPanel.tsx` keeps an
+  editable draft that follows sway until the user edits it.
 - Tests use documentation names and addresses (`printer-1234.local`,
   `192.0.2.x`); keep it that way, the repo is public.
 
-Next slices per `docs/IDEA.md`: `Displays`, `Virtual machine`, `Status`, each
-as its own CLI plus panel.
+Next slices per `docs/IDEA.md`: `Virtual machine` and `Status`, each as its
+own CLI plus panel.
