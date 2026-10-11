@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  driverlessServiceName,
   lpadminAddArgs,
   lpadminDefaultArgs,
   lpadminRemoveArgs,
@@ -91,5 +92,23 @@ describe('uriHost', () => {
     expect(uriHost('ipp://Printer-1234.LOCAL:631/ipp/print')).toBe('printer-1234.local');
     expect(uriHost('socket://192.0.2.20:9100')).toBe('192.0.2.20');
     expect(uriHost('file:///dev/null')).toBe(null);
+  });
+});
+
+describe('driverlessServiceName', () => {
+  it('decodes the service name from a DNS-SD style URI and ignores host URIs', () => {
+    expect(driverlessServiceName('ipps://Example%20L1234%20Series._ipps._tcp.local/')).toBe(
+      'Example L1234 Series',
+    );
+    expect(driverlessServiceName('ipp://Example._ipp._tcp.local:631/ipp/print')).toBe('Example');
+    expect(driverlessServiceName('ipp://printer-1234.local:631/ipp/print')).toBeNull();
+  });
+
+  it('parses the DNS-SD form of driverless list', () => {
+    const line =
+      '"driverless:ipps://Example%20L1234%20Series._ipps._tcp.local/" en "Example" "Example L1234 Series, driverless, cups-filters 1.28.17" "MFG:Example;MDL:L1234 Series;CMD:PWGRaster,PWG;"\n';
+    expect(parseDriverlessList(line)[0]?.uri).toBe(
+      'ipps://Example%20L1234%20Series._ipps._tcp.local/',
+    );
   });
 });

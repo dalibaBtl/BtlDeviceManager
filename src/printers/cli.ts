@@ -25,6 +25,7 @@ import {
   parseDriverlessList,
   parseLpstat,
   uriHost,
+  driverlessServiceName,
 } from './cups.js';
 import { mergePrinters, slug } from './model.js';
 import type { Printer, PrinterList, PrintQueue } from '../shared/types.js';
@@ -135,15 +136,24 @@ async function add(id: string): Promise<void> {
     throw new CliError(`${printer.name} is not seen on the network; wake it up and retry`, 1);
   }
   const entries = parseDriverlessList(await run(DRIVERLESS, ['list']));
+  // driverless names the printer either by host (older cups-filters) or by
+  // its DNS-SD service name; the mDNS record has both, so either may match.
   const wanted = new Set([printer.host?.toLowerCase(), printer.ip?.toLowerCase()]);
-  const entry = entries.find((e) => wanted.has(uriHost(e.uri) ?? ''));
+  const name = printer.name.toLowerCase();
+  const entry = entries.find(
+    (e) => wanted.has(uriHost(e.uri) ?? '') || driverlessServiceName(e.uri)?.toLowerCase() === name,
+  );
   if (!entry) {
+    const seen = entries.map((e) => `\n  ${e.uri}`).join('');
     throw new CliError(
-      `${printer.name} answered mDNS but not IPP (driverless found ${entries.length} printer(s)); retry in a moment`,
+      `${printer.name} answered mDNS but driverless list did not offer it; retry in a moment.` +
+        (seen ? `\ndriverless found:${seen}` : '\ndriverless found nothing'),
       1,
     );
   }
-  await runVisible(LPADMIN, lpadminAddArgs(printer.id, entry.uri, entry.model));
+  // The device URI is the host form from mDNS: readable in lpstat, and what
+  // the queue is matched back to the discovered printer by.
+  await runVisible(LPADMIN, lpadminAddArgs(printer.id, printer.uri, entry.model));
   process.stdout.write(await run('lpstat', ['-p', printer.id]));
 }
 

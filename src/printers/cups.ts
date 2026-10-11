@@ -67,6 +67,9 @@ export interface DriverlessEntry {
  *
  *     "driverless:ipp://host:631/ipp/print" en "MFG" "Model, driverless, cups-filters 2.x" "MFG:…;MDL:…;"
  *
+ * Newer cups-filters print a DNS-SD URI instead of a host, with the service
+ * name URL-encoded: `driverless:ipps://Example%20L1234._ipps._tcp.local/`.
+ * {@link driverlessServiceName} gets the name back out of that form.
  * Unlike `lpinfo`, `driverless` runs as a regular user, which is why the CLI
  * uses it for discovery of PPD-capable printers.
  */
@@ -109,6 +112,21 @@ export function lpTestPageArgs(name: string): string[] {
  * case-insensitively because mDNS names are case-preserving but not
  * case-sensitive, and printers themselves vary the case.
  */
+/**
+ * The mDNS service name inside a DNS-SD style URI
+ * (`ipps://Example%20L1234._ipps._tcp.local/` → `Example L1234`), or `null`
+ * for a plain host URI.
+ */
+export function driverlessServiceName(uri: string): string | null {
+  const m = /^[a-z]+:\/\/([^/]+?)\.?_ipps?\._tcp\.local\.?(?:[/:]|$)/i.exec(uri);
+  if (!m || m[1] === undefined) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
 export function uriHost(uri: string): string | null {
   const m = /^[a-z]+:\/\/([^/:?#]+)/i.exec(uri);
   return m ? (m[1] ?? '').toLowerCase() : null;
