@@ -104,7 +104,7 @@ there. Do not install packages from the app.
 
 ## State of the repository
 
-Done: the skeleton, the `Printers` panel and the `Displays` panel.
+Done: the skeleton and the `Printers`, `Displays` and `Virtual machine` panels.
 `docs/adr/0001` says where and why it diverges from bgcm.
 
 - `src/printers/` is the `btl-printers` CLI (`cli/btl-printers.js` loads the
@@ -121,18 +121,27 @@ Done: the skeleton, the `Printers` panel and the `Displays` panel.
   under `~/.cache/btl-device-manager/layouts/` and types the command.
   `move-workspace` is the one display action run directly (no root, one-line
   failure, and it is triggered by a drag).
+- `src/vm/` is the `btl-vm` CLI: `virsh.ts` parses `dominfo` (virsh has no
+  JSON; `list --all --name` plus one `dominfo` per domain copes with names
+  containing spaces), `settings.ts` reads the `set $ws… "…"` workspace names
+  from the sway config and renders `config.d/vm.conf`, which holds each
+  machine's console workspace as a sway variable `$btl_vm_console_<name>`. Always
+  `-c qemu:///system`: without it virsh uses the empty per-user instance.
+  `console` subscribes to sway window events, starts `virt-viewer` and moves
+  the first window from that pid, so no `app_id` is guessed.
+  `console-workspace` is the one direct VM action (a line in the user's own
+  sway config).
 - `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
   for each feature and holds the watchers (`/etc/cups`, `swaymsg -t
-subscribe`). `buildSteps` validates a printer id against the last listing,
-  or a layout file against the server's own directory, and returns the line
-  typed into the terminal. `paths.ts#printersCommand` decides between
-  `btl-printers` (when `/usr/local/bin/btl-printers` links to this clone) and
-  the absolute path.
+subscribe`, `virsh event --loop`). `buildSteps` validates a printer id or a
+  machine name against the last listing, or a layout file against the
+  server's own directory, and returns the line typed into the terminal.
+  `paths.ts#printersCommand` decides between `btl-printers` (when
+  `/usr/local/bin/btl-printers` links to this clone) and the absolute path.
 - `src/web/`: `Nav.tsx` lists `PANELS` from `state.ts`; add a panel by adding
   its id there and a component in `main.tsx`. `DisplaysPanel.tsx` keeps an
   editable draft that follows sway until the user edits it.
 - Tests use documentation names and addresses (`printer-1234.local`,
   `192.0.2.x`); keep it that way, the repo is public.
 
-Next slices per `docs/IDEA.md`: `Virtual machine` and `Status`, each as its
-own CLI plus panel.
+Next slice per `docs/IDEA.md`: `Status`, as its own CLI plus panel.

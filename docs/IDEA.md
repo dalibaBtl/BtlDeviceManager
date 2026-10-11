@@ -138,14 +138,19 @@ Seznam virtuálek (`virsh list --all`), start, vypnutí a otevření konzole.
 Konzoli otevírá **`virt-viewer`**, ne `virt-manager`. Důvod je okenní:
 `virt-manager` je správcovský nástroj a konzoli otevírá jako další okno téhož
 programu, takže by se s ní na plochu virtuálek stěhoval i on. `virt-viewer`
-je samostatné okno s vlastním `app_id`. Role `desktop` ho musí doinstalovat,
-dnes na stanicích není.
+je samostatné okno s vlastním `app_id`. Instaluje ho role `desktop`
+v `btl-infra`.
 
-**Okno patří na plochu `5: vm`, ne tam, kde stojí Manager.** Neřeší to
-aplikace, ale pravidlo `assign` v konfiguraci sway v `btl-infra` — uplatní se
-při vzniku okna, zatímco „přepni plochu a pak spusť" je závod s tím, kdy se
-okno objeví. `app_id` pro to pravidlo se odečte z běžícího okna
-(`swaymsg -t get_tree`), neodhaduje se.
+**Okno nemá zůstat tam, kde stojí Manager, ale cílová plocha není daná.**
+`5: vm` je na to v sway configu připravená, závazná ale být nemá: virtuálek
+může přibýt a každou si uživatel může chtít dát jinam. Plochu si
+uživatel vybere v panelu (nabídka = `set $ws… "…"` ze sway configu plus živé
+plochy) a volba se uloží jako sway proměnná do `config.d/vm.conf`. Přesun
+nedělá pravidlo `assign` (potřebovalo by `app_id`, které se dá jen hádat),
+ale `btl-vm console`: přihlásí se na okenní události sway, spustí
+`virt-viewer` a první okno s PID potomka přesune a plochu zaměří. „Přepni
+plochu a pak spusť" by byl závod s tím, kdy se okno objeví; reakce na vznik
+okna není.
 
 ### Status
 

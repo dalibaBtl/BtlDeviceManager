@@ -140,6 +140,41 @@ btl-displays config                  # the current outputs.conf
 btl-displays move-workspace "3: ai" "<make model serial>"
 ```
 
+## Virtual machine
+
+Lists the libvirt domains on the system connection (`qemu:///system`) with
+their state, CPUs and memory. **Start** (which goes straight on to the
+console), **Shut down** (ACPI; the guest decides) and **Force off…** (pull the
+plug, after confirming) are typed into the terminal as `btl-vm start <name>`
+and so on. Nothing needs `sudo` for a
+member of the `libvirt` group. The commands are still typed
+rather than run hidden, because a guest that will not start says why on
+stderr and that text is what you pass on when asking for help.
+
+**Console** opens `virt-viewer` (the role installs it; `virt-manager` would
+drag its own window along). _Console on_ in each row picks the workspace that
+machine's console window is moved to. The choices are sway variables in
+`~/.config/sway/config.d/vm.conf`, one per machine:
+
+```
+set $btl_vm_console_win11 "5: vm"
+```
+
+The list offers the workspaces named by `set $ws… "…"` in `~/.config/sway/config`
+plus the ones open right now. `btl-vm console` subscribes to sway's window
+events before starting the viewer and moves the first window that process
+creates, then focuses the workspace; no `app_id` has to be known or guessed.
+A viewer started by hand is not moved.
+
+```bash
+btl-vm list [--json]
+btl-vm start|shutdown|poweroff|console <name>
+btl-vm console-workspace win11 "5: vm"     # or --none
+```
+
+The panel follows `virsh event --all --loop`, so a guest started or stopped
+elsewhere shows up without Refresh.
+
 ## Development
 
 ```bash
