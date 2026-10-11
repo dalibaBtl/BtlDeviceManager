@@ -175,6 +175,47 @@ btl-vm console-workspace win11 "5: vm"     # or --none
 The panel follows `virsh event --all --loop`, so a guest started or stopped
 elsewhere shows up without Refresh.
 
+## Status
+
+Read-only. One page with what support asks for first: machine name and
+system, hardware (model, BIOS, CPU, memory, graphics, battery), the last
+configuration run, failed services, disks, network devices with addresses,
+MACs, Wi-Fi link and DNS, and WireGuard tunnels. **Copy summary** puts the
+same facts on the clipboard as plain text; `btl-status list` prints that
+text in a shell, `--json` is what the server reads. The page follows
+`nmcli monitor` and rereads every minute.
+
+The one action is **Show log** on a failed service, typed as
+
+```bash
+sudo journalctl -u <unit> -n 50 --no-pager      # journalctl --user … for a user unit
+```
+
+because the journal is readable only by root and the `adm` group.
+
+Every source is optional: a missing tool leaves its field empty instead of
+failing the page, since a half-broken machine is when the page is needed.
+Two things it cannot see without root: the product serial number, and a
+WireGuard unit that is set up but has never been started.
+
+_Last playbook run_ is read from `/etc/ansible/facts.d/btl.fact`, a standard
+place for local facts that Ansible itself does not write. The playbook has to
+record it; a task at the end of the common role does it:
+
+```yaml
+- name: Record this run for the Status panel
+  ansible.builtin.copy:
+    dest: /etc/ansible/facts.d/btl.fact
+    content: >-
+      {{ {"playbook_run_at": now(utc=true).isoformat(),
+          "playbook": ansible_play_name,
+          "check_mode": ansible_check_mode} | to_json }}
+    mode: '0644'
+  when: not ansible_check_mode
+```
+
+Until it does, the panel says "no record on this machine".
+
 ## Development
 
 ```bash

@@ -104,7 +104,8 @@ there. Do not install packages from the app.
 
 ## State of the repository
 
-Done: the skeleton and the `Printers`, `Displays` and `Virtual machine` panels.
+Done: the skeleton and all four panels from `docs/IDEA.md`: `Printers`,
+`Displays`, `Virtual machine` and `Status`.
 `docs/adr/0001` says where and why it diverges from bgcm.
 
 - `src/printers/` is the `btl-printers` CLI (`cli/btl-printers.js` loads the
@@ -131,9 +132,16 @@ Done: the skeleton and the `Printers`, `Displays` and `Virtual machine` panels.
   the first window from that pid, so no `app_id` is guessed.
   `console-workspace` is the one direct VM action (a line in the user's own
   sway config).
+- `src/status/` is the `btl-status` CLI, read-only: `parse.ts` holds one
+  pure parser per source (`systemctl -o json`, `findmnt -J`, `nmcli -t`,
+  `ip -j`, sysfs and /proc files, the playbook fact), `summary.ts` renders
+  the text the CLI prints and the panel copies, `cli.ts` reads every source
+  in parallel and lets each one fail alone. The playbook fact
+  (`/etc/ansible/facts.d/btl.fact`) is written by btl-infra, format in README.
 - `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
-  for each feature and holds the watchers (`/etc/cups`, `swaymsg -t
-subscribe`, `virsh event --loop`). `buildSteps` validates a printer id or a
+  for each feature (`CliSource<R>` is generic over the parsed result: lists
+  for three panels, one object for status) and holds the watchers
+  (`/etc/cups`, `swaymsg -t subscribe`, `virsh event --loop`, `nmcli monitor`). `buildSteps` validates a printer id or a
   machine name against the last listing, or a layout file against the
   server's own directory, and returns the line typed into the terminal.
   `paths.ts#printersCommand` decides between `btl-printers` (when
@@ -144,4 +152,6 @@ subscribe`, `virsh event --loop`). `buildSteps` validates a printer id or a
 - Tests use documentation names and addresses (`printer-1234.local`,
   `192.0.2.x`); keep it that way, the repo is public.
 
-Next slice per `docs/IDEA.md`: `Status`, as its own CLI plus panel.
+Everything in `docs/IDEA.md` is built; new panels follow the same split (CLI
+under `src/<feature>/`, a `CliSource` in the server, a component in
+`src/web/components/`, an id in `PANELS`).
