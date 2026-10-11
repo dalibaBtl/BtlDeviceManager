@@ -1,26 +1,18 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { watch as fsWatch } from 'node:fs';
+import type { SystemStatus } from '../shared/types.js';
 
 /** Upper bound for one `list --json` run; mDNS browsing alone takes a few seconds. */
 const LIST_TIMEOUT_MS = 20_000;
 
 /**
  * The server's only view of a feature: it runs `<cli> list --json` and parses
- * the result. No CUPS or sway knowledge lives in the server, so what the UI
- * shows is exactly what the user would get from the CLI over SSH.
+ * the result. No CUPS, sway or libvirt knowledge lives in the server, so what
+ * the UI shows is exactly what the user would get from the CLI over SSH.
  */
-export class CliSource<T> {
-  /**
-   * Called with every fresh list, or with the error when the CLI failed.
-   * `data` is the whole JSON object the CLI printed, for the few fields that
-   * are not list items (the VM console setting); empty on failure.
-   */
-  onUpdate: (
-    items: T[],
-    scannedAt: number | null,
-    error: string | null,
-    data: Record<string, unknown>,
-  ) => void = () => undefined;
+export class CliSource<R> {
+  /** Called with every fresh result, or with `null` and the error when the CLI failed. */
+  onUpdate: (result: R | null, error: string | null) => void = () => undefined;
   onScanning: (scanning: boolean) => void = () => undefined;
 
   private running: Promise<void> | null = null;
@@ -28,11 +20,7 @@ export class CliSource<T> {
 
   constructor(
     private readonly cliPath: string,
-    private readonly parse: (json: string) => {
-      items: T[];
-      scannedAt: number;
-      data: Record<string, unknown>;
-    },
+    private readonly parse: (json: string) => R,
   ) {}
 
   /** Registers an external trigger (file watch, event stream) that calls {@link refresh}. */
@@ -59,10 +47,9 @@ export class CliSource<T> {
 
   private async scan(): Promise<void> {
     try {
-      const parsed = this.parse(await runCli(this.cliPath, ['list', '--json']));
-      this.onUpdate(parsed.items, parsed.scannedAt, null, parsed.data);
+      this.onUpdate(this.parse(await runCli(this.cliPath, ['list', '--json'])), null);
     } catch (e) {
-      this.onUpdate([], null, e instanceof Error ? e.message : String(e), {});
+      this.onUpdate(null, e instanceof Error ? e.message : String(e));
     }
   }
 }
@@ -82,9 +69,16 @@ export function runCli(cliPath: string, args: string[]): Promise<string> {
   });
 }
 
+/** A parsed `list --json` result: the items plus whatever else the CLI printed. */
+export interface ListResult<T> {
+  items: T[];
+  scannedAt: number;
+  data: Record<string, unknown>;
+}
+
 /** Validates the CLI's JSON just enough to not crash the UI on a half-written line. */
 export function parseList<T>(key: string, isItem: (v: unknown) => v is T) {
-  return (text: string): { items: T[]; scannedAt: number; data: Record<string, unknown> } => {
+  return (text: string): ListResult<T> => {
     const data = JSON.parse(text) as Record<string, unknown>;
     const list = data[key];
     if (!Array.isArray(list)) throw new Error(`CLI returned no "${key}" list`);
@@ -94,6 +88,15 @@ export function parseList<T>(key: string, isItem: (v: unknown) => v is T) {
       data,
     };
   };
+}
+
+/** Validates `btl-status list --json` just enough: an object with a `host`. */
+export function parseStatus(text: string): SystemStatus {
+  const data = JSON.parse(text) as Partial<SystemStatus>;
+  if (!data || typeof data !== 'object' || typeof data.host?.name !== 'string') {
+    throw new Error('CLI returned no status');
+  }
+  return data as SystemStatus;
 }
 
 /**
@@ -133,6 +136,11 @@ export function watchSwayOutputs(onChange: () => void): () => void {
  */
 export function watchVirshEvents(onChange: () => void): () => void {
   return followStream('virsh', ['-c', 'qemu:///system', 'event', '--all', '--loop'], 500, onChange);
+}
+
+/** Follows NetworkManager (`nmcli monitor`) so a cable or Wi-Fi change updates the status at once. */
+export function watchNetwork(onChange: () => void): () => void {
+  return followStream('nmcli', ['monitor'], 1000, onChange);
 }
 
 /**

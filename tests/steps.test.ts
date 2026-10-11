@@ -21,7 +21,7 @@ const withQueue: Printer = {
   id: "it's",
   queue: { name: "it's", uri: discovered.uri!, state: 'idle', isDefault: false },
 };
-const known = { printers: [discovered, withQueue], vms: [] };
+const known = { printers: [discovered, withQueue], vms: [], failedUnits: [] };
 const ctx = (printers: string) => ({
   printers,
   displays: '/x/cli/btl-displays.js',
@@ -61,7 +61,11 @@ describe('buildSteps', () => {
     expect(() =>
       buildSteps(
         { action: 'printer-add', id: 'asleep' },
-        { printers: [{ ...discovered, id: 'asleep', discovered: false }], vms: [] },
+        {
+          printers: [{ ...discovered, id: 'asleep', discovered: false }],
+          vms: [],
+          failedUnits: [],
+        },
         ctx('x'),
       ),
     ).toThrow(/not seen/);
@@ -73,7 +77,7 @@ describe('buildSteps for displays', () => {
   const file = path.join(layouts, 'layout-1.json');
   writeFileSync(file, '{}');
   const c = { ...ctx('btl-printers'), layouts };
-  const none = { printers: [], vms: [] };
+  const none = { printers: [], vms: [], failedUnits: [] };
 
   it('applies only a layout file from the server directory', () => {
     expect(buildSteps({ action: 'display-apply', file }, none, c)).toEqual([
@@ -107,7 +111,7 @@ describe('buildSteps for virtual machines', () => {
     consoleWorkspace: null,
   };
   const up: VirtualMachine = { ...off, name: 'up', id: 3, state: 'running' };
-  const k = { printers: [], vms: [off, up] };
+  const k = { printers: [], vms: [off, up], failedUnits: [] };
   const c = ctx('btl-printers');
 
   it('types the CLI without sudo and quotes the name', () => {
@@ -153,5 +157,32 @@ describe('printersCommand', () => {
       [cli]: cli,
     };
     expect(printersCommand(cli, (p) => other[p] ?? null)).toBe(cli);
+  });
+});
+
+describe('buildSteps for status', () => {
+  const failed = [
+    { unit: 'example.service', description: 'Example', sub: 'failed', scope: 'system' as const },
+    { unit: 'mine.service', description: 'Mine', sub: 'failed', scope: 'user' as const },
+  ];
+  const k = { printers: [], vms: [], failedUnits: failed };
+  const c = ctx('btl-printers');
+
+  it('shows a system log with sudo and a user log without', () => {
+    expect(
+      buildSteps({ action: 'status-log', unit: 'example.service', scope: 'system' }, k, c),
+    ).toEqual(["sudo journalctl -u 'example.service' -n 50 --no-pager"]);
+    expect(buildSteps({ action: 'status-log', unit: 'mine.service', scope: 'user' }, k, c)).toEqual(
+      ["journalctl --user -u 'mine.service' -n 50 --no-pager"],
+    );
+  });
+
+  it('refuses a unit the status did not report', () => {
+    expect(() =>
+      buildSteps({ action: 'status-log', unit: 'ssh.service', scope: 'system' }, k, c),
+    ).toThrow(/unknown unit/);
+    expect(() =>
+      buildSteps({ action: 'status-log', unit: 'mine.service', scope: 'system' }, k, c),
+    ).toThrow(/unknown unit/);
   });
 });

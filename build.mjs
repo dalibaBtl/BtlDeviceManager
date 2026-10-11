@@ -49,6 +49,13 @@ const vmCli = {
 };
 
 /** @type {import('esbuild').BuildOptions} */
+const statusCli = {
+  ...node,
+  entryPoints: ['src/status/cli.ts'],
+  outfile: 'dist/status-cli.js',
+};
+
+/** @type {import('esbuild').BuildOptions} */
 const web = {
   entryPoints: ['src/web/main.tsx'],
   outfile: 'dist/web/main.js',
@@ -66,7 +73,7 @@ const web = {
 await mkdir('dist/web', { recursive: true });
 await cp('src/web/index.html', 'dist/web/index.html');
 
-const all = [server, printersCli, displaysCli, vmCli, web];
+const all = [server, printersCli, displaysCli, vmCli, statusCli, web];
 if (watch) {
   const contexts = await Promise.all(all.map(context));
   await Promise.all(contexts.map((c) => c.watch()));

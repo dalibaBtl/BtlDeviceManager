@@ -11,8 +11,10 @@ import type {
   ClientMessage,
   DisplayLayout,
   DisplayOutput,
+  FailedUnit,
   Printer,
   ServerMessage,
+  SystemStatus,
   TerminalAction,
   VirtualMachine,
   VmSettings,
@@ -21,10 +23,13 @@ import { isDown, isUp } from '../vm/virsh.js';
 import {
   CliSource,
   parseList,
+  parseStatus,
   runCli,
   watchCups,
+  watchNetwork,
   watchSwayOutputs,
   watchVirshEvents,
+  type ListResult,
 } from './cli-source.js';
 import {
   cacheDir,
@@ -32,6 +37,7 @@ import {
   layoutsDir,
   printersCliPath,
   printersCommand,
+  statusCliPath,
   vmCliPath,
 } from './paths.js';
 import { Terminal, shellQuote } from './terminal.js';
@@ -52,7 +58,7 @@ export interface RunningServer {
   close(): void;
 }
 
-/** Milliseconds between background rescans; printers wake up and fall asleep on their own. */
+/** Milliseconds between background rescans; printers wake up and fall asleep on their own, disks fill up. */
 const REFRESH_INTERVAL = 60_000;
 /** Grace period before exiting once the last client is gone. */
 const IDLE_EXIT_MS = 10_000;
@@ -72,6 +78,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     printersCommand: printersCommand(),
     displaysCli: displaysCliPath(),
     vmCli: vmCliPath(),
+    statusCli: statusCliPath(),
   });
   const server = http.createServer((req, res) => {
     handleHttp(app, token, opts.webDir, req, res).catch((e: unknown) => {
@@ -131,6 +138,13 @@ interface AppPaths {
   printersCommand: string;
   displaysCli: string;
   vmCli: string;
+  statusCli: string;
+}
+
+/** Snapshot of the status read as pushed to clients. */
+interface StatusState {
+  status: SystemStatus | null;
+  error: string | null;
 }
 
 const NO_VM_SETTINGS: VmSettings = { workspaces: [] };
@@ -151,10 +165,12 @@ class App {
     error: null,
     settings: NO_VM_SETTINGS,
   };
+  private status: StatusState = { status: null, error: null };
   private scanning = false;
-  private readonly printerSource: CliSource<Printer>;
-  private readonly displaySource: CliSource<DisplayOutput>;
-  private readonly vmSource: CliSource<VirtualMachine>;
+  private readonly printerSource: CliSource<ListResult<Printer>>;
+  private readonly displaySource: CliSource<ListResult<DisplayOutput>>;
+  private readonly vmSource: CliSource<ListResult<VirtualMachine>>;
+  private readonly statusSource: CliSource<SystemStatus>;
   private refreshTimer: NodeJS.Timeout | null = null;
 
   onClientCountChange: (n: number) => void = () => undefined;
@@ -164,8 +180,8 @@ class App {
       paths.printersCli,
       parseList('printers', (v): v is Printer => typeof (v as Printer)?.id === 'string'),
     );
-    this.printerSource.onUpdate = (items, scannedAt, error) => {
-      this.printers = { items, scannedAt, error };
+    this.printerSource.onUpdate = (r, error) => {
+      this.printers = listing(r, error);
       this.broadcast({ type: 'printers', ...this.printers });
     };
     this.printerSource.onScanning = (on) => this.setScanning(on);
@@ -177,8 +193,8 @@ class App {
         (v): v is DisplayOutput => typeof (v as DisplayOutput)?.identifier === 'string',
       ),
     );
-    this.displaySource.onUpdate = (items, scannedAt, error) => {
-      this.displays = { items, scannedAt, error };
+    this.displaySource.onUpdate = (r, error) => {
+      this.displays = listing(r, error);
       this.broadcast({ type: 'displays', ...this.displays });
     };
 
@@ -186,9 +202,15 @@ class App {
       paths.vmCli,
       parseList('vms', (v): v is VirtualMachine => typeof (v as VirtualMachine)?.name === 'string'),
     );
-    this.vmSource.onUpdate = (items, scannedAt, error, data) => {
-      this.vms = { items, scannedAt, error, settings: vmSettings(data.settings) };
+    this.vmSource.onUpdate = (r, error) => {
+      this.vms = { ...listing(r, error), settings: vmSettings(r?.data.settings) };
       this.broadcast({ type: 'vms', ...this.vms });
+    };
+
+    this.statusSource = new CliSource(paths.statusCli, parseStatus);
+    this.statusSource.onUpdate = (status, error) => {
+      this.status = { status, error };
+      this.broadcast({ type: 'status', ...this.status });
     };
   }
 
@@ -202,10 +224,15 @@ class App {
     void this.printerSource.refresh();
     void this.displaySource.refresh();
     void this.vmSource.refresh();
+    void this.statusSource.refresh();
     this.printerSource.watch(watchCups);
     this.displaySource.watch(watchSwayOutputs);
     this.vmSource.watch(watchVirshEvents);
-    this.refreshTimer = setInterval(() => void this.printerSource.refresh(), REFRESH_INTERVAL);
+    this.statusSource.watch(watchNetwork);
+    this.refreshTimer = setInterval(() => {
+      void this.printerSource.refresh();
+      void this.statusSource.refresh();
+    }, REFRESH_INTERVAL);
   }
 
   stop(): void {
@@ -213,6 +240,7 @@ class App {
     this.printerSource.stop();
     this.displaySource.stop();
     this.vmSource.stop();
+    this.statusSource.stop();
     for (const c of this.clients) {
       c.terminal?.kill();
       c.ws.close();
@@ -241,6 +269,14 @@ class App {
 
   vmsSnapshot(): Listing<VirtualMachine> & { settings: VmSettings } {
     return this.vms;
+  }
+
+  refreshStatus(): Promise<void> {
+    return this.statusSource.refresh();
+  }
+
+  statusSnapshot(): StatusState {
+    return this.status;
   }
 
   /**
@@ -305,6 +341,7 @@ class App {
     this.send(client, { type: 'printers', ...this.printers });
     this.send(client, { type: 'displays', ...this.displays });
     this.send(client, { type: 'vms', ...this.vms });
+    this.send(client, { type: 'status', ...this.status });
     this.send(client, { type: 'scanning', scanning: this.scanning });
 
     ws.on('message', (raw) => {
@@ -361,7 +398,11 @@ class App {
         client.terminal.runChain(
           buildSteps(
             msg.run,
-            { printers: this.printers.items, vms: this.vms.items },
+            {
+              printers: this.printers.items,
+              vms: this.vms.items,
+              failedUnits: this.status.status?.failedUnits ?? [],
+            },
             {
               printers: this.paths.printersCommand,
               displays: this.paths.displaysCli,
@@ -387,6 +428,12 @@ export interface StepContext {
 export interface Known {
   printers: Printer[];
   vms: VirtualMachine[];
+  failedUnits: FailedUnit[];
+}
+
+/** Turns a CLI result (or its absence) into the listing pushed to clients. */
+function listing<T>(r: ListResult<T> | null, error: string | null): Listing<T> {
+  return { items: r?.items ?? [], scannedAt: r?.scannedAt ?? null, error };
 }
 
 /**
@@ -402,6 +449,13 @@ export function buildSteps(run: TerminalAction, known: Known, ctx: StepContext):
       throw new Error('layout was not prepared by this server');
     }
     return [`${ctx.displays} apply ${shellQuote(file)}`];
+  }
+  if (run.action === 'status-log') {
+    const unit = known.failedUnits.find((u) => u.unit === run.unit && u.scope === run.scope);
+    if (!unit) throw new Error('unknown unit; refresh the status and try again');
+    // The journal is readable only by root and the adm group; user units are the user's own.
+    const prefix = unit.scope === 'user' ? 'journalctl --user' : 'sudo journalctl';
+    return [`${prefix} -u ${shellQuote(unit.unit)} -n 50 --no-pager`];
   }
   if ('name' in run) return vmSteps(run, known.vms, ctx.vm);
   const printer = known.printers.find((p) => p.id === run.id);
@@ -515,6 +569,13 @@ async function handleHttp(
     }
     case 'GET /api/vms':
       sendJson(res, 200, app.vmsSnapshot());
+      return;
+    case 'GET /api/status':
+      sendJson(res, 200, app.statusSnapshot());
+      return;
+    case 'POST /api/status/refresh':
+      await app.refreshStatus();
+      sendJson(res, 200, app.statusSnapshot());
       return;
     case 'POST /api/vms/refresh':
       await app.refreshVms();

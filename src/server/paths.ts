@@ -57,6 +57,12 @@ export function vmCliPath(): string {
   return path.resolve(here, '..', 'cli', 'btl-vm.js');
 }
 
+/** Absolute path of `cli/btl-status.js` in this clone. */
+export function statusCliPath(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, '..', 'cli', 'btl-status.js');
+}
+
 /** Where the server stores layout files for `btl-displays apply <file>`. */
 export function layoutsDir(): string {
   return path.join(cacheDir(), 'layouts');

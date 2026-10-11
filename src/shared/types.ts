@@ -60,6 +60,7 @@ export type ServerMessage =
       scannedAt: number | null;
       error: string | null;
     }
+  | { type: 'status'; status: SystemStatus | null; error: string | null }
   | { type: 'term-data'; data: string }
   | { type: 'term-exit'; code: number }
   | { type: 'notice'; level: 'info' | 'error'; text: string };
@@ -78,7 +79,8 @@ export type TerminalAction =
   | { action: 'vm-start'; name: string }
   | { action: 'vm-shutdown'; name: string }
   | { action: 'vm-poweroff'; name: string }
-  | { action: 'vm-console'; name: string };
+  | { action: 'vm-console'; name: string }
+  | { action: 'status-log'; unit: string; scope: UnitScope };
 
 /** Messages sent from client to server over the WebSocket. */
 export type ClientMessage =
@@ -224,5 +226,118 @@ export interface VmSettings {
 export interface VmList {
   vms: VirtualMachine[];
   settings: VmSettings;
+  scannedAt: number;
+}
+
+// ---- status -------------------------------------------------------------------
+
+/** Whether a unit belongs to the system manager or the user's own. */
+export type UnitScope = 'system' | 'user';
+
+/** Identity of the machine, the first things support asks for. */
+export interface StatusHost {
+  name: string;
+  /** `PRETTY_NAME` from os-release. */
+  os: string;
+  kernel: string;
+  uptimeSeconds: number;
+  timezone: string | null;
+  /** `null` when timedatectl is not available. */
+  ntpSynchronized: boolean | null;
+}
+
+/** What the DMI tables, /proc and sysfs say about the hardware; `null` where the machine does not tell. */
+export interface StatusHardware {
+  vendor: string | null;
+  model: string | null;
+  board: string | null;
+  biosVersion: string | null;
+  biosDate: string | null;
+  cpu: string | null;
+  cpuCount: number;
+  memoryMiB: number | null;
+  memoryAvailableMiB: number | null;
+  gpu: string | null;
+  battery: { percent: number; status: string } | null;
+}
+
+/** The last configuration run, as recorded by the playbook in `/etc/ansible/facts.d/btl.fact`. */
+export interface PlaybookRun {
+  /** ISO 8601 timestamp. */
+  runAt: string;
+  playbook: string | null;
+  checkMode: boolean;
+}
+
+export interface FailedUnit {
+  unit: string;
+  description: string;
+  /** systemd's sub-state, e.g. `failed`. */
+  sub: string;
+  scope: UnitScope;
+}
+
+/** One real filesystem, sizes in bytes. */
+export interface DiskUsage {
+  target: string;
+  source: string;
+  fstype: string;
+  size: number;
+  used: number;
+  avail: number;
+}
+
+export interface WifiLink {
+  ssid: string;
+  /** 0–100 as NetworkManager reports it. */
+  signal: number;
+  frequencyMHz: number | null;
+  rateMbit: number | null;
+  security: string;
+}
+
+/** One network device as NetworkManager and the kernel see it; loopback and Wi-Fi P2P are left out. */
+export interface NetworkDevice {
+  device: string;
+  type: string;
+  /** NetworkManager's words, e.g. `connected`, `disconnected`, `unavailable`. */
+  state: string;
+  connection: string | null;
+  mac: string | null;
+  ipv4: string[];
+  ipv6: string[];
+  gateway: string | null;
+  dns: string[];
+  /** Link speed from sysfs for wired devices. */
+  speedMbit: number | null;
+  wifi: WifiLink | null;
+}
+
+export interface NetworkStatus {
+  /** NetworkManager's overall state, e.g. `connected`. */
+  state: string | null;
+  /** NetworkManager's connectivity check: `full`, `limited`, `portal`, `none`, `unknown`. */
+  connectivity: string | null;
+  defaultRoute: { device: string; gateway: string } | null;
+  devices: NetworkDevice[];
+}
+
+export interface VpnStatus {
+  /** WireGuard interfaces that exist right now, with their addresses. */
+  tunnels: { ifname: string; addresses: string[] }[];
+  /** `wg-quick@…` instances systemd knows; an instance never started is invisible without root. */
+  units: { unit: string; active: string; sub: string }[];
+}
+
+/** Result of one `btl-status list --json` run: everything support asks about, read-only. */
+export interface SystemStatus {
+  host: StatusHost;
+  hardware: StatusHardware;
+  playbook: PlaybookRun | null;
+  failedUnits: FailedUnit[];
+  disks: DiskUsage[];
+  network: NetworkStatus;
+  vpn: VpnStatus;
+  /** Epoch milliseconds when the read finished. */
   scannedAt: number;
 }
