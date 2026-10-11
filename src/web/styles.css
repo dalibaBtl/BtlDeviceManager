@@ -159,33 +159,41 @@ code {
   overflow: auto;
   flex: 1;
 }
-table.printers {
+table.printers,
+table.vms {
   width: 100%;
   border-collapse: collapse;
 }
 table.printers th,
-table.printers td {
+table.vms th,
+table.printers td,
+table.vms td {
   text-align: left;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
-table.printers th {
+table.printers th,
+table.vms th {
   color: var(--fg-dim);
   font-weight: 500;
   font-size: 12px;
 }
-table.printers td.name {
+table.printers td.name,
+table.vms td.name {
   font-weight: 600;
 }
-table.printers tr.away td {
+table.printers tr.away td,
+table.vms tr.away td {
   color: var(--fg-dim);
 }
-table.printers td.actions {
+table.printers td.actions,
+table.vms td.actions {
   text-align: right;
   white-space: nowrap;
 }
-table.printers td.actions button {
+table.printers td.actions button,
+table.vms td.actions button {
   margin-left: 4px;
 }
 

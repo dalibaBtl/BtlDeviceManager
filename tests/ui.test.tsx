@@ -3,7 +3,7 @@
 // view code and to assert which actions appear for which printer state.
 import { render } from 'preact-render-to-string';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { Printer } from '../src/shared/types.js';
+import type { Printer, VirtualMachine } from '../src/shared/types.js';
 
 beforeAll(() => {
   // The API client reads these at import time.
@@ -205,5 +205,61 @@ describe('DisplaysPanel', () => {
     );
     expect(fit.k).toBeCloseTo((720 - 48) / 5360, 5);
     expect(fit.height).toBe(Math.ceil(1440 * fit.k) + 48);
+  });
+});
+
+describe('VmPanel', () => {
+  const off: VirtualMachine = {
+    name: 'Example VM',
+    id: null,
+    state: 'shut off',
+    cpus: 4,
+    memoryMiB: 16384,
+    autostart: false,
+    persistent: true,
+    consoleWorkspace: null,
+  };
+
+  async function loadVm() {
+    const state = await import('../src/web/state.js');
+    const panel = await import('../src/web/components/VmPanel.jsx');
+    return { state, ...panel };
+  }
+
+  it('explains an empty list and shows the CLI error verbatim', async () => {
+    const { state, VmPanel } = await loadVm();
+    state.vms.value = [];
+    state.vmsScannedAt.value = Date.now();
+    state.vmsError.value = null;
+    expect(render(<VmPanel />)).toContain('No virtual machines are defined');
+    state.vmsError.value = 'virsh: failed to connect';
+    expect(render(<VmPanel />)).toContain('failed to connect');
+  });
+
+  it('offers Start for a stopped guest and Console, Shut down, Force off for a running one', async () => {
+    const { state, VmPanel } = await loadVm();
+    state.vmsError.value = null;
+    state.vms.value = [
+      off,
+      { ...off, name: 'up', id: 2, state: 'running', autostart: true, consoleWorkspace: '5: vm' },
+    ];
+    state.vmSettings.value = { workspaces: ['1: dev', '5: vm'] };
+    const html = render(<VmPanel />);
+    expect(html).toContain('>Start<');
+    expect(html).toContain('>Console<');
+    expect(html).toContain('>Shut down<');
+    expect(html).toContain('>Force off<');
+    expect(html).toContain('16 GiB');
+    expect(html).toContain('starts with the machine');
+    expect(html.match(/<option selected value="5: vm"/g)).toHaveLength(1);
+    expect(html.match(/<option selected value>/g)).toHaveLength(1);
+  });
+
+  it('formats memory the way people say it', async () => {
+    const { formatMemory } = await loadVm();
+    expect(formatMemory(16384)).toBe('16 GiB');
+    expect(formatMemory(1536)).toBe('1.5 GiB');
+    expect(formatMemory(512)).toBe('512 MiB');
+    expect(formatMemory(1000)).toBe('1000 MiB');
   });
 });

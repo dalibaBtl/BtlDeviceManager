@@ -6,6 +6,7 @@ import { Nav } from './components/Nav.jsx';
 import { DisplaysPanel } from './components/DisplaysPanel.jsx';
 import { PrintersPanel } from './components/PrintersPanel.jsx';
 import { TerminalPane } from './components/TerminalPane.jsx';
+import { VmPanel } from './components/VmPanel.jsx';
 import { applyServerMessage, notices, selectedPanel } from './state.js';
 import './styles.css';
 
@@ -84,6 +85,7 @@ function App() {
       <div class="middle" style={{ gridTemplateRows: `minmax(${MIN_PANEL}px, 1fr) 6px ${term}px` }}>
         {selectedPanel.value === 'printers' && <PrintersPanel />}
         {selectedPanel.value === 'displays' && <DisplaysPanel />}
+        {selectedPanel.value === 'vm' && <VmPanel />}
         <Splitter axis="y" onMove={(d) => setTerm(Math.max(MIN_TERM, term - d))} />
         <TerminalPane />
       </div>

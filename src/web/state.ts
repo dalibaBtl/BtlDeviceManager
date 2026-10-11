@@ -1,5 +1,12 @@
 import { signal } from '@preact/signals';
-import type { DisplayOutput, Printer, ServerMessage, TerminalAction } from '../shared/types.js';
+import type {
+  DisplayOutput,
+  Printer,
+  ServerMessage,
+  TerminalAction,
+  VirtualMachine,
+  VmSettings,
+} from '../shared/types.js';
 import { api, socket } from './api.js';
 
 /**
@@ -8,10 +15,11 @@ import { api, socket } from './api.js';
  */
 
 /** The panels in the left navigation; one per feature, in the order they appear. */
-export type Panel = 'printers' | 'displays';
+export type Panel = 'printers' | 'displays' | 'vm';
 export const PANELS: { id: Panel; label: string }[] = [
   { id: 'printers', label: 'Printers' },
   { id: 'displays', label: 'Displays' },
+  { id: 'vm', label: 'Virtual machine' },
 ];
 export const selectedPanel = signal<Panel>('printers');
 
@@ -25,6 +33,11 @@ export const scanning = signal(false);
 export const displays = signal<DisplayOutput[]>([]);
 export const displaysError = signal<string | null>(null);
 export const displaysScannedAt = signal<number | null>(null);
+
+export const vms = signal<VirtualMachine[]>([]);
+export const vmsError = signal<string | null>(null);
+export const vmsScannedAt = signal<number | null>(null);
+export const vmSettings = signal<VmSettings>({ workspaces: [] });
 
 export interface Notice {
   id: number;
@@ -61,6 +74,10 @@ export function refreshPrinters(): Promise<void> {
   return guard(() => api.post('/api/printers/refresh')).then(() => undefined);
 }
 
+export function refreshVms(): Promise<void> {
+  return guard(() => api.post('/api/vms/refresh')).then(() => undefined);
+}
+
 /** Sends an action to be typed into this window's terminal. */
 export function runInTerminal(run: TerminalAction): void {
   socket.send({ type: 'term-run', run });
@@ -81,6 +98,12 @@ export function applyServerMessage(msg: ServerMessage): void {
       displays.value = msg.items;
       displaysScannedAt.value = msg.scannedAt;
       displaysError.value = msg.error;
+      break;
+    case 'vms':
+      vms.value = msg.items;
+      vmsScannedAt.value = msg.scannedAt;
+      vmsError.value = msg.error;
+      vmSettings.value = msg.settings;
       break;
     case 'notice':
       notify(msg.level, msg.text);
