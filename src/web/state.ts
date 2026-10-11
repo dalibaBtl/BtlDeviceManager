@@ -3,6 +3,7 @@ import type {
   DisplayOutput,
   Printer,
   ServerMessage,
+  SystemStatus,
   TerminalAction,
   VirtualMachine,
   VmSettings,
@@ -15,11 +16,12 @@ import { api, socket } from './api.js';
  */
 
 /** The panels in the left navigation; one per feature, in the order they appear. */
-export type Panel = 'printers' | 'displays' | 'vm';
+export type Panel = 'printers' | 'displays' | 'vm' | 'status';
 export const PANELS: { id: Panel; label: string }[] = [
   { id: 'printers', label: 'Printers' },
   { id: 'displays', label: 'Displays' },
   { id: 'vm', label: 'Virtual machine' },
+  { id: 'status', label: 'Status' },
 ];
 export const selectedPanel = signal<Panel>('printers');
 
@@ -38,6 +40,9 @@ export const vms = signal<VirtualMachine[]>([]);
 export const vmsError = signal<string | null>(null);
 export const vmsScannedAt = signal<number | null>(null);
 export const vmSettings = signal<VmSettings>({ workspaces: [] });
+
+export const status = signal<SystemStatus | null>(null);
+export const statusError = signal<string | null>(null);
 
 export interface Notice {
   id: number;
@@ -78,6 +83,10 @@ export function refreshVms(): Promise<void> {
   return guard(() => api.post('/api/vms/refresh')).then(() => undefined);
 }
 
+export function refreshStatus(): Promise<void> {
+  return guard(() => api.post('/api/status/refresh')).then(() => undefined);
+}
+
 /** Sends an action to be typed into this window's terminal. */
 export function runInTerminal(run: TerminalAction): void {
   socket.send({ type: 'term-run', run });
@@ -104,6 +113,10 @@ export function applyServerMessage(msg: ServerMessage): void {
       vmsScannedAt.value = msg.scannedAt;
       vmsError.value = msg.error;
       vmSettings.value = msg.settings;
+      break;
+    case 'status':
+      status.value = msg.status;
+      statusError.value = msg.error;
       break;
     case 'notice':
       notify(msg.level, msg.text);

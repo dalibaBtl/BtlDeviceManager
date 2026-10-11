@@ -160,40 +160,48 @@ code {
   flex: 1;
 }
 table.printers,
-table.vms {
+table.vms,
+table.status {
   width: 100%;
   border-collapse: collapse;
 }
 table.printers th,
 table.vms th,
+table.status th,
 table.printers td,
-table.vms td {
+table.vms td,
+table.status td {
   text-align: left;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
 table.printers th,
-table.vms th {
+table.vms th,
+table.status th {
   color: var(--fg-dim);
   font-weight: 500;
   font-size: 12px;
 }
 table.printers td.name,
-table.vms td.name {
+table.vms td.name,
+table.status td.name {
   font-weight: 600;
 }
 table.printers tr.away td,
-table.vms tr.away td {
+table.vms tr.away td,
+table.status tr.away td {
   color: var(--fg-dim);
 }
 table.printers td.actions,
-table.vms td.actions {
+table.vms td.actions,
+table.status td.actions {
   text-align: right;
   white-space: nowrap;
 }
 table.printers td.actions button,
-table.vms td.actions button {
+table.vms td.actions button,
+table.status td.actions button {
   margin-left: 4px;
 }
 
@@ -401,4 +409,63 @@ select.mode {
   font-size: 12px;
   max-height: 50vh;
   overflow: auto;
+}
+
+/* status panel */
+.status {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 12px;
+}
+.card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px 10px;
+  background: var(--bg-head);
+}
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.kv {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.kv .k {
+  color: var(--fg-dim);
+}
+.kv .v {
+  overflow-wrap: anywhere;
+}
+.kv.warn .v {
+  color: var(--warn);
+}
+.ok-line {
+  margin: 4px 0;
+  color: var(--ok);
+}
+table.status tr.warn td {
+  color: var(--warn);
+}
+.bar {
+  width: 120px;
+  height: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.bar div {
+  height: 100%;
+  background: var(--accent);
+}
+tr.warn .bar div {
+  background: var(--warn);
 }

@@ -263,3 +263,38 @@ describe('VmPanel', () => {
     expect(formatMemory(1000)).toBe('1000 MiB');
   });
 });
+
+describe('StatusPanel', () => {
+  async function loadStatus() {
+    const state = await import('../src/web/state.js');
+    const panel = await import('../src/web/components/StatusPanel.jsx');
+    const { SAMPLE } = await import('./status.test.js');
+    return { state, SAMPLE, ...panel };
+  }
+
+  it('shows the CLI error, then every section with warnings where due', async () => {
+    const { state, SAMPLE, StatusPanel } = await loadStatus();
+    state.status.value = null;
+    state.statusError.value = 'btl-status: boom';
+    expect(render(<StatusPanel />)).toContain('boom');
+    state.statusError.value = null;
+    state.status.value = SAMPLE;
+    const html = render(<StatusPanel />);
+    expect(html).toContain('example-station');
+    expect(html).toContain('Example Book 14');
+    expect(html).toContain('no record on this machine');
+    expect(html).toContain('example.service');
+    expect(html).toContain('>Show log<');
+    expect(html).toContain('<tr class="warn">'); // the 95 % disk
+    expect(html).toContain('192.0.2.71/24');
+    expect(html).toContain('SSID &quot;Example Net&quot;');
+    expect(html).toContain('No tunnel is up');
+  });
+
+  it('says so when all services run', async () => {
+    const { state, SAMPLE, StatusPanel } = await loadStatus();
+    state.statusError.value = null;
+    state.status.value = { ...SAMPLE, failedUnits: [] };
+    expect(render(<StatusPanel />)).toContain('All services are running');
+  });
+});
