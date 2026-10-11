@@ -1,0 +1,46 @@
+{
+  "name": "btl-manager",
+  "version": "0.1.0",
+  "description": "BTL Manager - manage the workstation you are sitting at: printers, displays, virtual machine, status",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dalibaBtl/BtlManager.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "btl-manager": "cli/btl-manager.js",
+    "btl-printers": "cli/btl-printers.js"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "start": "node cli/btl-manager.js",
+    "install-desktop": "node scripts/install-desktop.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@preact/signals": "2.11.3",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "node-pty": "1.1.0",
+    "preact": "11.0.1",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.28.2",
+    "preact-render-to-string": "6.8.0",
+    "prettier": "3.9.9",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
