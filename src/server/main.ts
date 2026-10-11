@@ -1,13 +1,28 @@
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { ClientMessage, Printer, ServerMessage, TerminalAction } from '../shared/types.js';
-import { cacheDir, printersCliPath, printersCommand } from './paths.js';
-import { PrinterSource } from './printers.js';
+import { validateLayout } from '../displays/config.js';
+import type {
+  ClientMessage,
+  DisplayLayout,
+  DisplayOutput,
+  Printer,
+  ServerMessage,
+  TerminalAction,
+} from '../shared/types.js';
+import { CliSource, parseList, runCli, watchCups, watchSwayOutputs } from './cli-source.js';
+import {
+  cacheDir,
+  displaysCliPath,
+  layoutsDir,
+  printersCliPath,
+  printersCommand,
+} from './paths.js';
 import { Terminal, shellQuote } from './terminal.js';
 
 /** Options accepted by {@link startServer}. */
@@ -41,7 +56,11 @@ const IDLE_EXIT_MS = 10_000;
  */
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const token = randomBytes(24).toString('base64url');
-  const app = new App(printersCliPath(), printersCommand());
+  const app = new App({
+    printersCli: printersCliPath(),
+    printersCommand: printersCommand(),
+    displaysCli: displaysCliPath(),
+  });
   const server = http.createServer((req, res) => {
     handleHttp(app, token, opts.webDir, req, res).catch((e: unknown) => {
       sendJson(res, 500, { error: errorText(e) });
@@ -86,64 +105,121 @@ interface Client {
   terminal: Terminal | null;
 }
 
+/** Snapshot of one feature's list as pushed to clients. */
+interface Listing<T> {
+  items: T[];
+  scannedAt: number | null;
+  error: string | null;
+}
+
+/** Which CLIs the server drives, and how the printers one is spelled in the terminal. */
+interface AppPaths {
+  printersCli: string;
+  /** `btl-printers` or the absolute script path; see {@link printersCommand}. */
+  printersCommand: string;
+  displaysCli: string;
+}
+
 /**
- * In-memory model shared by all clients: the printer list and the background
- * jobs that refresh it. Everything that changes the system goes through
- * {@link buildSteps} into the client's terminal, never through this class.
+ * In-memory model shared by all clients: the printer and display lists and
+ * the background jobs that refresh them. Everything that changes the system
+ * goes through {@link buildSteps} into the client's terminal, never through
+ * this class.
  */
 class App {
   private clients = new Set<Client>();
-  private printers: Printer[] = [];
-  private scannedAt: number | null = null;
-  private error: string | null = null;
+  private printers: Listing<Printer> = { items: [], scannedAt: null, error: null };
+  private displays: Listing<DisplayOutput> = { items: [], scannedAt: null, error: null };
   private scanning = false;
-  private readonly source: PrinterSource;
+  private readonly printerSource: CliSource<Printer>;
+  private readonly displaySource: CliSource<DisplayOutput>;
   private refreshTimer: NodeJS.Timeout | null = null;
 
   onClientCountChange: (n: number) => void = () => undefined;
 
-  constructor(
-    cliPath: string,
-    private readonly cliCommand: string,
-  ) {
-    this.source = new PrinterSource(cliPath);
-    this.source.onUpdate = (items, scannedAt, error) => {
-      this.printers = items;
-      this.scannedAt = scannedAt;
-      this.error = error;
-      this.broadcast(this.printersMessage());
+  constructor(private readonly paths: AppPaths) {
+    this.printerSource = new CliSource(
+      paths.printersCli,
+      parseList('printers', (v): v is Printer => typeof (v as Printer)?.id === 'string'),
+    );
+    this.printerSource.onUpdate = (items, scannedAt, error) => {
+      this.printers = { items, scannedAt, error };
+      this.broadcast({ type: 'printers', ...this.printers });
     };
-    this.source.onScanning = (scanning) => {
-      this.scanning = scanning;
-      this.broadcast({ type: 'scanning', scanning });
+    this.printerSource.onScanning = (on) => this.setScanning(on);
+
+    this.displaySource = new CliSource(
+      paths.displaysCli,
+      parseList(
+        'outputs',
+        (v): v is DisplayOutput => typeof (v as DisplayOutput)?.identifier === 'string',
+      ),
+    );
+    this.displaySource.onUpdate = (items, scannedAt, error) => {
+      this.displays = { items, scannedAt, error };
+      this.broadcast({ type: 'displays', ...this.displays });
     };
   }
 
+  /** Only the printer scan is slow enough to show; display reads take milliseconds. */
+  private setScanning(on: boolean): void {
+    this.scanning = on;
+    this.broadcast({ type: 'scanning', scanning: on });
+  }
+
   start(): void {
-    void this.source.refresh();
-    this.source.startWatching();
-    this.refreshTimer = setInterval(() => void this.source.refresh(), REFRESH_INTERVAL);
+    void this.printerSource.refresh();
+    void this.displaySource.refresh();
+    this.printerSource.watch(watchCups);
+    this.displaySource.watch(watchSwayOutputs);
+    this.refreshTimer = setInterval(() => void this.printerSource.refresh(), REFRESH_INTERVAL);
   }
 
   stop(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
-    this.source.stop();
+    this.printerSource.stop();
+    this.displaySource.stop();
     for (const c of this.clients) {
       c.terminal?.kill();
       c.ws.close();
     }
   }
 
-  refresh(): Promise<void> {
-    return this.source.refresh();
+  refreshPrinters(): Promise<void> {
+    return this.printerSource.refresh();
   }
 
-  snapshot(): { items: Printer[]; scannedAt: number | null; error: string | null } {
-    return { items: this.printers, scannedAt: this.scannedAt, error: this.error };
+  refreshDisplays(): Promise<void> {
+    return this.displaySource.refresh();
   }
 
-  private printersMessage(): ServerMessage {
-    return { type: 'printers', ...this.snapshot() };
+  printersSnapshot(): Listing<Printer> {
+    return this.printers;
+  }
+
+  displaysSnapshot(): Listing<DisplayOutput> {
+    return this.displays;
+  }
+
+  /**
+   * Checks a layout against the current outputs, stores it for the CLI and
+   * returns what `apply` would write next to what is there now, so the user
+   * confirms a visible diff rather than a blind overwrite.
+   */
+  async prepareLayout(
+    layout: DisplayLayout,
+  ): Promise<{ file: string; preview: string; current: string }> {
+    const problems = validateLayout(layout, this.displays.items);
+    if (problems.length > 0) throw new Error(problems.join('\n'));
+    await mkdir(layoutsDir(), { recursive: true });
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+    const file = path.join(layoutsDir(), `layout-${stamp}.json`);
+    await writeFile(file, JSON.stringify(layout, null, 2) + '\n', 'utf8');
+    const [preview, current] = await Promise.all([
+      runCli(this.paths.displaysCli, ['preview', file]),
+      runCli(this.paths.displaysCli, ['config']),
+    ]);
+    return { file, preview, current };
   }
 
   // ---- clients -------------------------------------------------------------
@@ -152,7 +228,8 @@ class App {
     const client: Client = { ws, terminal: null };
     this.clients.add(client);
     this.onClientCountChange(this.clients.size);
-    this.send(client, this.printersMessage());
+    this.send(client, { type: 'printers', ...this.printers });
+    this.send(client, { type: 'displays', ...this.displays });
     this.send(client, { type: 'scanning', scanning: this.scanning });
 
     ws.on('message', (raw) => {
@@ -206,21 +283,43 @@ class App {
         break;
       case 'term-run':
         if (!client.terminal) throw new Error('terminal is not open');
-        client.terminal.runChain(buildSteps(msg.run, this.printers, this.cliCommand));
+        client.terminal.runChain(
+          buildSteps(msg.run, this.printers.items, {
+            printers: this.paths.printersCommand,
+            displays: this.paths.displaysCli,
+            layouts: layoutsDir(),
+          }),
+        );
         break;
     }
   }
 }
 
+/** How the CLIs are spelled in the terminal and where layout files may come from. */
+export interface StepContext {
+  printers: string;
+  displays: string;
+  layouts: string;
+}
+
 /**
- * Translates a terminal action into the shell line the user will see. The
- * printer id must come from the current list, so the terminal only ever runs
- * the CLI on something the server has reported, never on client-supplied text.
+ * Translates a terminal action into the shell line the user will see. A
+ * printer id must come from the current list and a layout file from the
+ * server's own directory, so the terminal only ever runs the CLIs on something
+ * the server has produced or reported, never on client-supplied text.
  */
-export function buildSteps(run: TerminalAction, known: Printer[], cli: string): string[] {
+export function buildSteps(run: TerminalAction, known: Printer[], ctx: StepContext): string[] {
+  if (run.action === 'display-apply') {
+    const file = path.resolve(run.file);
+    if (path.dirname(file) !== path.resolve(ctx.layouts) || !existsSync(file)) {
+      throw new Error('layout was not prepared by this server');
+    }
+    return [`${ctx.displays} apply ${shellQuote(file)}`];
+  }
   const printer = known.find((p) => p.id === run.id);
   if (!printer) throw new Error('unknown printer; refresh the list and try again');
   const id = shellQuote(printer.id);
+  const cli = ctx.printers;
   switch (run.action) {
     case 'printer-add':
       if (printer.queue) throw new Error(`${printer.name} already has a queue`);
@@ -262,12 +361,24 @@ async function handleHttp(
   }
   switch (`${req.method} ${url.pathname}`) {
     case 'GET /api/printers':
-      sendJson(res, 200, app.snapshot());
+      sendJson(res, 200, app.printersSnapshot());
       return;
     case 'POST /api/printers/refresh':
-      await app.refresh();
-      sendJson(res, 200, app.snapshot());
+      await app.refreshPrinters();
+      sendJson(res, 200, app.printersSnapshot());
       return;
+    case 'GET /api/displays':
+      sendJson(res, 200, app.displaysSnapshot());
+      return;
+    case 'POST /api/displays/refresh':
+      await app.refreshDisplays();
+      sendJson(res, 200, app.displaysSnapshot());
+      return;
+    case 'POST /api/displays/prepare': {
+      const body = await readJson(req);
+      sendJson(res, 200, await app.prepareLayout(body.layout as DisplayLayout));
+      return;
+    }
     default:
       sendJson(res, 404, { error: 'not found' });
   }
@@ -294,6 +405,23 @@ function serveStatic(webDir: string, pathname: string, res: http.ServerResponse)
     'cache-control': 'no-cache',
   });
   createReadStream(file).pipe(res);
+}
+
+function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      try {
+        resolve(
+          JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as Record<string, unknown>,
+        );
+      } catch {
+        reject(new Error('invalid JSON body'));
+      }
+    });
+    req.on('error', reject);
+  });
 }
 
 function sendJson(res: http.ServerResponse, code: number, body: unknown): void {

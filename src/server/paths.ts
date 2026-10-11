@@ -41,3 +41,14 @@ function realpathOrNull(p: string): string | null {
     return null;
   }
 }
+
+/** Absolute path of `cli/btl-displays.js` in this clone. */
+export function displaysCliPath(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, '..', 'cli', 'btl-displays.js');
+}
+
+/** Where the server stores layout files for `btl-displays apply <file>`. */
+export function layoutsDir(): string {
+  return path.join(cacheDir(), 'layouts');
+}
