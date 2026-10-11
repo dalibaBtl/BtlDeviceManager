@@ -9,7 +9,7 @@ const token = new URLSearchParams(location.search).get('t') ?? '';
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(new URL(path, location.origin), {
     method,
-    headers: { 'x-btlm-token': token, ...(body ? { 'content-type': 'application/json' } : {}) },
+    headers: { 'x-btldm-token': token, ...(body ? { 'content-type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = (await res.json()) as T & { error?: string };

@@ -2,7 +2,7 @@
  * Reads sway's view of the outputs (`swaymsg -t get_outputs`) into the shape
  * the app and the config writer work with.
  */
-import type { DisplayMode, DisplayOutput, Transform } from '../shared/types.js';
+import type { DisplayMode, DisplayOutput, Transform, Workspace } from '../shared/types.js';
 import { TRANSFORMS } from '../shared/types.js';
 
 /** Virtual outputs created for streaming; the role manages them, the user must not. */
@@ -65,9 +65,41 @@ export function parseOutputs(json: string): DisplayOutput[] {
       scale: typeof o.scale === 'number' && o.scale > 0 ? o.scale : 1,
       transform: toTransform(o.transform),
       focused: o.focused === true,
+      workspaces: [],
     });
   }
   return out;
+}
+
+interface RawWorkspace {
+  name?: string;
+  output?: string;
+  visible?: boolean;
+  focused?: boolean;
+}
+
+/**
+ * Attaches `swaymsg -t get_workspaces` to the outputs by connector name.
+ * Workspaces on an output that is hidden or unknown are dropped; sway moves
+ * them itself when the output goes away.
+ */
+export function attachWorkspaces(outputs: DisplayOutput[], json: string): DisplayOutput[] {
+  const raw = JSON.parse(json) as RawWorkspace[];
+  if (!Array.isArray(raw)) throw new Error('get_workspaces did not return a list');
+  const byOutput = new Map<string, Workspace[]>();
+  for (const w of raw) {
+    if (typeof w.name !== 'string' || typeof w.output !== 'string') continue;
+    const list = byOutput.get(w.output) ?? [];
+    list.push({ name: w.name, visible: w.visible === true, focused: w.focused === true });
+    byOutput.set(w.output, list);
+  }
+  return outputs.map((o) => ({ ...o, workspaces: byOutput.get(o.name) ?? [] }));
+}
+
+/** The one workspace with keyboard focus, if any output lists it. */
+export function focusedWorkspace(outputs: DisplayOutput[]): string | null {
+  for (const o of outputs) for (const w of o.workspaces) if (w.focused) return w.name;
+  return null;
 }
 
 function toMode(m: RawMode | undefined): DisplayMode | null {

@@ -103,6 +103,14 @@ export const TRANSFORMS: Transform[] = [
 /** Scale factors offered in the UI; sway accepts any number, but these are the ones that render well. */
 export const SCALES = [1, 1.25, 1.5, 2];
 
+/** A sway workspace as shown on an output; empty workspaces do not exist in sway, so these are the live ones. */
+export interface Workspace {
+  name: string;
+  /** Shown on its output right now (one per output); `focused` is the one with keyboard focus. */
+  visible: boolean;
+  focused: boolean;
+}
+
 /**
  * One physical output as sway sees it. `identifier` is sway's
  * `"make model serial"` and is what the config file addresses, because the
@@ -127,6 +135,8 @@ export interface DisplayOutput {
   scale: number;
   transform: Transform;
   focused: boolean;
+  /** Workspaces currently on this output, in sway's order. */
+  workspaces: Workspace[];
 }
 
 /** What the user wants one output to be; the unit of `btl-displays apply`. */
@@ -140,6 +150,12 @@ export interface LayoutEntry {
   mode: DisplayMode;
   scale: number;
   transform: Transform;
+  /**
+   * Workspace names pinned to this output (`workspace <name> output <id>` in
+   * the config). Every existing workspace is written on Apply, so a replugged
+   * monitor gets its workspaces back instead of sway's default placement.
+   */
+  workspaces: string[];
 }
 
 /** The whole arrangement, written to `~/.config/sway/config.d/outputs.conf`. */

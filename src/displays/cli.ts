@@ -5,6 +5,7 @@
  *     btl-displays preview <layout>     print the outputs.conf a layout would produce
  *     btl-displays apply <layout>       write outputs.conf, validate the sway config, reload
  *     btl-displays config               print the current outputs.conf
+ *     btl-displays move-workspace <name> <identifier>   move a workspace to an output now
  *
  * `<layout>` is a JSON file ({@link DisplayLayout}); the app writes one under
  * its cache directory and types `btl-displays apply <file>` into the terminal,
@@ -20,7 +21,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import type { DisplayLayout, DisplayList, DisplayOutput } from '../shared/types.js';
 import { renderConfig, validateLayout } from './config.js';
-import { describeMode, parseOutputs } from './sway.js';
+import { attachWorkspaces, describeMode, focusedWorkspace, parseOutputs } from './sway.js';
 
 const TIMEOUT_MS = 10_000;
 
@@ -61,6 +62,13 @@ export async function main(argv: string[]): Promise<number> {
       case 'config':
         process.stdout.write(await currentConfig());
         return 0;
+      case 'move-workspace': {
+        const [name, identifier] = rest;
+        if (!name || !identifier)
+          throw new CliError(`missing workspace name or output\n${USAGE}`, 2);
+        await moveWorkspace(name, identifier, await outputs());
+        return 0;
+      }
       case undefined:
       case '-h':
       case '--help':
@@ -81,6 +89,7 @@ const USAGE = `usage: btl-displays list [--json]
        btl-displays preview <layout.json>
        btl-displays apply <layout.json>
        btl-displays config
+       btl-displays move-workspace <name> <output identifier>
 `;
 
 function requireFile(rest: string[]): string {
@@ -102,7 +111,9 @@ async function list(json: boolean): Promise<void> {
     const where = o.enabled
       ? `${o.width}x${o.height} at ${o.x},${o.y}  ${describeMode(o.mode)}  scale ${o.scale}  ${o.transform}`
       : 'disabled';
+    const ws = o.workspaces.map((w) => (w.visible ? `[${w.name}]` : w.name)).join('  ');
     process.stdout.write(`${o.name.padEnd(10)} ${where}\n    ${o.identifier}\n`);
+    if (ws) process.stdout.write(`    workspaces: ${ws}\n`);
   }
 }
 
@@ -120,6 +131,55 @@ async function apply(file: string): Promise<void> {
   await run('sway', ['-C', '-c', swayConfigPath()]);
   process.stdout.write('+ swaymsg reload\n');
   await run('swaymsg', ['reload']);
+  // `workspace … output …` only places workspaces when they are created or an
+  // output appears; the ones open right now have to be moved explicitly.
+  const after = await outputs();
+  for (const e of layout.outputs) {
+    const target = after.find((o) => o.identifier === e.identifier);
+    if (!target?.enabled) continue;
+    for (const w of e.workspaces) {
+      if (
+        !target.workspaces.some((x) => x.name === w) &&
+        after.some((o) => o.workspaces.some((x) => x.name === w))
+      ) {
+        await moveWorkspace(w, e.identifier, after);
+      }
+    }
+  }
+}
+
+/**
+ * Moves one workspace now. sway moves only the focused workspace, so the
+ * command focuses it first and returns to the previous one afterwards; when
+ * the workspace is the focused one, a plain move will do.
+ */
+async function moveWorkspace(
+  name: string,
+  identifier: string,
+  known: DisplayOutput[],
+): Promise<void> {
+  const target = known.find((o) => o.identifier === identifier || o.name === identifier);
+  if (!target) throw new CliError(`unknown output ${identifier}`, 2);
+  if (!target.enabled) throw new CliError(`${target.name} is disabled`, 2);
+  if (!known.some((o) => o.workspaces.some((w) => w.name === name))) {
+    throw new CliError(`no workspace called ${name}`, 2);
+  }
+  const move = `move workspace to output ${swayQuote(target.identifier)}`;
+  const cmd =
+    focusedWorkspace(known) === name
+      ? move
+      : `workspace ${swayQuote(name)}; ${move}; workspace back_and_forth`;
+  process.stdout.write(`+ swaymsg '${cmd}'\n`);
+  const out = await run('swaymsg', [cmd]);
+  const failed = (JSON.parse(out) as { success: boolean; error?: string }[]).find(
+    (r) => !r.success,
+  );
+  if (failed) throw new CliError(failed.error ?? 'swaymsg refused the command', 1);
+}
+
+/** Quotes a name for sway's command language; sway accepts double quotes with backslash escapes. */
+function swayQuote(s: string): string {
+  return `"${s.replace(/(["\\])/g, '\\$1')}"`;
 }
 
 async function currentConfig(): Promise<string> {
@@ -149,7 +209,11 @@ export async function scan(): Promise<DisplayList> {
 }
 
 async function outputs(): Promise<DisplayOutput[]> {
-  return parseOutputs(await run('swaymsg', ['-t', 'get_outputs']));
+  const [o, w] = await Promise.all([
+    run('swaymsg', ['-t', 'get_outputs']),
+    run('swaymsg', ['-t', 'get_workspaces']),
+  ]);
+  return attachWorkspaces(parseOutputs(o), w);
 }
 
 function run(cmd: string, args: string[]): Promise<string> {

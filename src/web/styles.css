@@ -312,6 +312,45 @@ table.printers td.actions button {
   fill: var(--fg-dim);
   font: 11px var(--mono);
 }
+.canvas .ws rect {
+  fill: var(--bg-head);
+  stroke: var(--fg-faint);
+  stroke-width: 1;
+  cursor: grab;
+}
+.canvas .ws.visible rect {
+  stroke: var(--ok);
+}
+.canvas .ws.dragging rect {
+  stroke: var(--accent);
+  stroke-dasharray: 3 2;
+  fill: transparent;
+}
+.canvas .ws.ghost {
+  pointer-events: none;
+}
+.canvas .ws.ghost rect {
+  fill: var(--accent);
+  stroke: none;
+  stroke-dasharray: none;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.6));
+}
+.canvas .ws.ghost text {
+  fill: #fff;
+}
+.canvas .display.target rect {
+  fill: #2f4a6e;
+  stroke: var(--ok);
+  stroke-width: 2.5;
+}
+.canvas .ws text {
+  fill: var(--fg-dim);
+  font: 11px var(--sans);
+  pointer-events: none;
+}
+.canvas .ws.visible text {
+  fill: var(--fg);
+}
 table.displays {
   width: 100%;
   border-collapse: collapse;

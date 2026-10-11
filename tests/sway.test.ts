@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { describeMode, formatMode, parseOutputs } from '../src/displays/sway.js';
+import {
+  attachWorkspaces,
+  describeMode,
+  focusedWorkspace,
+  formatMode,
+  parseOutputs,
+} from '../src/displays/sway.js';
 
 // Captured from `swaymsg -t get_outputs` on a workstation, with make/model/serial
 // replaced by documentation values. The laptop panel's model ends in a space,
@@ -86,5 +92,22 @@ describe('mode formatting', () => {
     expect(formatMode({ width: 1920, height: 1080, refresh: 59940 })).toBe('1920x1080@59.940Hz');
     expect(formatMode({ width: 800, height: 600, refresh: 0 })).toBe('800x600');
     expect(describeMode({ width: 1920, height: 1080, refresh: 59940 })).toBe('1920×1080 @ 60 Hz');
+  });
+});
+
+describe('attachWorkspaces', () => {
+  const WS = JSON.stringify([
+    { num: 4, name: '4: misc', output: 'HDMI-A-1', focused: true, visible: true },
+    { num: 1, name: '1: dev', output: 'eDP-1', focused: false, visible: true },
+    { num: 3, name: '3: ai', output: 'eDP-1', focused: false, visible: false },
+    { num: 9, name: 'stream', output: 'HEADLESS-1', focused: false, visible: true },
+  ]);
+
+  it('groups workspaces by connector in sway order and drops hidden outputs', () => {
+    const outputs = attachWorkspaces(parseOutputs(FIXTURE), WS);
+    expect(outputs[0]!.workspaces.map((w) => w.name)).toEqual(['1: dev', '3: ai']);
+    expect(outputs[1]!.workspaces).toEqual([{ name: '4: misc', visible: true, focused: true }]);
+    expect(focusedWorkspace(outputs)).toBe('4: misc');
+    expect(focusedWorkspace(parseOutputs(FIXTURE))).toBe(null);
   });
 });

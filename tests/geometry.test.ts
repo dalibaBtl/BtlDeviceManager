@@ -70,6 +70,7 @@ describe('overlaps and normalize', () => {
       mode,
       scale: 1,
       transform: 'normal',
+      workspaces: [],
     });
     expect(overlappingPairs([e('A', 0), e('B', 3440), e('C', 100, false)])).toEqual([]);
     expect(overlappingPairs([e('A', 0), e('B', 3000)])).toEqual([['A', 'B']]);

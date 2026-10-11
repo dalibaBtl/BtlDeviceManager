@@ -222,6 +222,22 @@ class App {
     return { file, preview, current };
   }
 
+  /**
+   * Moves a workspace to another output right away. A direct call, not a
+   * terminal line: it needs no root, fails only with a one-line reason, and
+   * the drag that triggers it would otherwise fill the terminal with noise.
+   * Both names must come from the current listing.
+   */
+  async moveWorkspace(name: string, identifier: string): Promise<void> {
+    const target = this.displays.items.find((o) => o.identifier === identifier);
+    if (!target) throw new Error('unknown output; refresh and try again');
+    if (!this.displays.items.some((o) => o.workspaces.some((w) => w.name === name))) {
+      throw new Error(`no workspace called ${name}`);
+    }
+    await runCli(this.paths.displaysCli, ['move-workspace', name, identifier]);
+    await this.displaySource.refresh();
+  }
+
   // ---- clients -------------------------------------------------------------
 
   attach(ws: WebSocket): void {
@@ -355,7 +371,7 @@ async function handleHttp(
     serveStatic(webDir, url.pathname, res);
     return;
   }
-  if (url.searchParams.get('t') !== token && req.headers['x-btlm-token'] !== token) {
+  if (url.searchParams.get('t') !== token && req.headers['x-btldm-token'] !== token) {
     sendJson(res, 401, { error: 'unauthorized' });
     return;
   }
@@ -374,6 +390,15 @@ async function handleHttp(
       await app.refreshDisplays();
       sendJson(res, 200, app.displaysSnapshot());
       return;
+    case 'POST /api/displays/move-workspace': {
+      const body = await readJson(req);
+      if (typeof body.name !== 'string' || typeof body.identifier !== 'string') {
+        throw new Error('missing name or identifier');
+      }
+      await app.moveWorkspace(body.name, body.identifier);
+      sendJson(res, 200, app.displaysSnapshot());
+      return;
+    }
     case 'POST /api/displays/prepare': {
       const body = await readJson(req);
       sendJson(res, 200, await app.prepareLayout(body.layout as DisplayLayout));

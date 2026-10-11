@@ -34,18 +34,33 @@ function resetDraft(outputs: DisplayOutput[]): void {
   dirty.value = false;
 }
 
-/** Keeps the draft in step with sway while there are no local edits. */
+/**
+ * Keeps the draft in step with sway while there are no local edits. With
+ * edits, outputs that vanished are dropped, new ones added, and workspace
+ * placement always follows sway because it is changed live, not in the draft.
+ */
 displays.subscribe((outputs) => {
   if (!dirty.value) resetDraft(outputs);
   else {
-    // Keep edits, but drop outputs that vanished and add ones that appeared.
     const current = layoutFromOutputs(outputs).outputs;
     draft.value = [
-      ...draft.value.filter((d) => current.some((c) => c.identifier === d.identifier)),
+      ...draft.value
+        .filter((d) => current.some((c) => c.identifier === d.identifier))
+        .map((d) => ({
+          ...d,
+          workspaces: current.find((c) => c.identifier === d.identifier)?.workspaces ?? [],
+        })),
       ...current.filter((c) => !draft.value.some((d) => d.identifier === c.identifier)),
     ];
   }
 });
+
+/** Moves a workspace now; the list refreshes from sway when the server has done it. */
+function moveWorkspace(name: string, identifier: string): Promise<void> {
+  return guard(() => api.post('/api/displays/move-workspace', { name, identifier })).then(
+    () => undefined,
+  );
+}
 
 const problems = computed(() => {
   const list: string[] = [];
@@ -138,8 +153,10 @@ export function DisplaysPanel() {
           </table>
         )}
         <p class="meta hint">
-          Drag displays to arrange them; edges snap together. Displays are matched by make, model
-          and serial, not by the port they are plugged into.
+          Drag displays to arrange them; edges snap together. Drag a workspace label onto another
+          display to move it there now; Apply pins every workspace to its display so it comes back
+          after replugging. Displays are matched by make, model and serial, not by the port they are
+          plugged into.
         </p>
       </div>
     </section>
@@ -250,6 +267,51 @@ function Canvas({ entries }: { entries: LayoutEntry[] }) {
     startY: number;
     origin: Rect;
   } | null>(null);
+  const [wsDrag, setWsDrag] = useState<{
+    name: string;
+    from: string;
+    /** Pointer position in canvas units, so the label ghost can follow it. */
+    px: number;
+    py: number;
+  } | null>(null);
+  const outputs = displays.value;
+
+  /** Pointer position in canvas units; the SVG may be shrunk by CSS, hence the ratio. */
+  const toCanvas = (ev: PointerEvent): { px: number; py: number } => {
+    const box = svg.current?.getBoundingClientRect();
+    if (!box) return { px: 0, py: 0 };
+    return {
+      px: ((ev.clientX - box.left) / box.width) * CANVAS_WIDTH,
+      py: ((ev.clientY - box.top) / box.height) * height,
+    };
+  };
+  /** The enabled display under a canvas point, if any. */
+  const hitTest = (px: number, py: number): LayoutEntry | undefined =>
+    on.find((_e, i) => {
+      const r = rects[i]!;
+      const x = CANVAS_PADDING + r.x * k;
+      const y = CANVAS_PADDING + r.y * k;
+      return px >= x && px <= x + r.width * k && py >= y && py <= y + r.height * k;
+    });
+  const wsTarget = wsDrag ? hitTest(wsDrag.px, wsDrag.py) : undefined;
+
+  // A workspace label follows the pointer; dropping it over another display moves it there.
+  useEffect(() => {
+    if (!wsDrag) return;
+    const move = (ev: PointerEvent) => setWsDrag({ ...wsDrag, ...toCanvas(ev) });
+    const up = (ev: PointerEvent) => {
+      setWsDrag(null);
+      const { px, py } = toCanvas(ev);
+      const hit = hitTest(px, py);
+      if (hit && hit.identifier !== wsDrag.from) void moveWorkspace(wsDrag.name, hit.identifier);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+  }, [wsDrag, k, height]);
 
   // Pointer moves are tracked on the window so a fast drag outside the rectangle still follows.
   useEffect(() => {
@@ -295,7 +357,9 @@ function Canvas({ entries }: { entries: LayoutEntry[] }) {
         return (
           <g
             key={e.identifier}
-            class={`display ${overlapping ? 'bad' : ''} ${drag?.id === e.identifier ? 'dragging' : ''}`}
+            class={`display ${overlapping ? 'bad' : ''} ${drag?.id === e.identifier ? 'dragging' : ''} ${
+              wsTarget?.identifier === e.identifier && wsDrag?.from !== e.identifier ? 'target' : ''
+            }`}
             onPointerDown={(ev) => {
               ev.preventDefault();
               setDrag({ id: e.identifier, startX: ev.clientX, startY: ev.clientY, origin: r });
@@ -308,9 +372,60 @@ function Canvas({ entries }: { entries: LayoutEntry[] }) {
             <text x={x + 8} y={y + 34} class="small">
               {r.width}×{r.height} at {e.x}, {e.y}
             </text>
+            {(outputs.find((o) => o.identifier === e.identifier)?.workspaces ?? []).map((w, j) => (
+              <WorkspaceLabel
+                key={w.name}
+                name={w.name}
+                visible={w.visible}
+                x={x + 8 + j * 72}
+                y={y + r.height * k - 26}
+                dragging={wsDrag?.name === w.name}
+                onPointerDown={(ev) => {
+                  ev.stopPropagation();
+                  ev.preventDefault();
+                  setWsDrag({ name: w.name, from: e.identifier, ...toCanvas(ev) });
+                }}
+              />
+            ))}
           </g>
         );
       })}
+      {wsDrag && (
+        <WorkspaceLabel
+          name={wsDrag.name}
+          visible={false}
+          x={wsDrag.px - 20}
+          y={wsDrag.py - 9}
+          dragging={true}
+          ghost={true}
+          onPointerDown={() => undefined}
+        />
+      )}
     </svg>
+  );
+}
+
+/** One draggable workspace chip inside a display rectangle. */
+function WorkspaceLabel(props: {
+  name: string;
+  visible: boolean;
+  x: number;
+  y: number;
+  dragging: boolean;
+  /** The copy that follows the pointer while dragging; it must not catch pointer events itself. */
+  ghost?: boolean;
+  onPointerDown: (ev: PointerEvent) => void;
+}) {
+  const width = Math.max(40, props.name.length * 7 + 12);
+  return (
+    <g
+      class={`ws ${props.visible ? 'visible' : ''} ${props.dragging ? 'dragging' : ''} ${props.ghost ? 'ghost' : ''}`}
+      onPointerDown={props.onPointerDown}
+    >
+      <rect x={props.x} y={props.y} width={width} height={18} rx={9} />
+      <text x={props.x + width / 2} y={props.y + 13} text-anchor="middle">
+        {props.name}
+      </text>
+    </g>
   );
 }

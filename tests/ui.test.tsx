@@ -136,6 +136,10 @@ describe('DisplaysPanel', () => {
     scale: 1,
     transform: 'normal' as const,
     focused: true,
+    workspaces: [
+      { name: '1: dev', visible: true, focused: true },
+      { name: '3: ai', visible: false, focused: false },
+    ],
   };
   const external = {
     ...laptop,
@@ -148,6 +152,7 @@ describe('DisplaysPanel', () => {
     mode: { width: 3440, height: 1440, refresh: 100000 },
     modes: [{ width: 3440, height: 1440, refresh: 100000 }],
     focused: false,
+    workspaces: [{ name: '4: misc', visible: true, focused: false }],
   };
 
   it('draws one rectangle per enabled display and a row per display', async () => {
@@ -158,12 +163,24 @@ describe('DisplaysPanel', () => {
       { ...external, enabled: false, x: 0, y: 0, width: 0, height: 0 },
     ];
     const html = render(<DisplaysPanel />);
-    expect(html.match(/<rect /g)).toHaveLength(1);
+    expect(html.match(/class="display /g)).toHaveLength(1);
     expect(html).toContain('eDP-1');
     expect(html).toContain('HDMI-A-1');
     expect(html).toContain('3440×1440 @ 100 Hz');
     expect(html).toContain('Example UW3440 SN0000001');
     expect(html).not.toContain('unsaved changes');
+  });
+
+  it('draws workspace labels inside their display, marking the visible one', async () => {
+    const state = await import('../src/web/state.js');
+    const { DisplaysPanel } = await import('../src/web/components/DisplaysPanel.jsx');
+    state.displays.value = [laptop, external];
+    const html = render(<DisplaysPanel />);
+    expect(html).toContain('1: dev');
+    expect(html).toContain('3: ai');
+    expect(html).toContain('4: misc');
+    expect(html.match(/class="ws visible/g)).toHaveLength(2);
+    expect(html.match(/class="ws /g)).toHaveLength(3);
   });
 
   it('shows the read error instead of an empty canvas', async () => {

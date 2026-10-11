@@ -8,7 +8,7 @@ import { formatMode, sameMode } from './sway.js';
 
 /** First line of every file this app writes; the app refuses to show a diff against anything else as "ours". */
 export const HEADER =
-  '# Written by btl-displays (BTL Manager). Edits here are replaced on the next Apply.';
+  '# Written by btl-displays (BTL Device Manager). Edits here are replaced on the next Apply.';
 
 /**
  * Renders the sway config. Outputs are addressed by identifier in double
@@ -32,6 +32,14 @@ export function renderConfig(layout: DisplayLayout): string {
       lines.push(
         `output ${quote(e.identifier)} enable pos ${e.x} ${e.y} mode ${formatMode(e.mode)} scale ${e.scale} transform ${e.transform}`,
       );
+    }
+  }
+  const pinned = entries.filter((e) => e.workspaces.length > 0);
+  if (pinned.length > 0) {
+    lines.push('', '# Workspaces return to these outputs when a monitor is plugged back in.');
+    for (const e of pinned) {
+      for (const w of e.workspaces)
+        lines.push(`workspace ${quote(w)} output ${quote(e.identifier)}`);
     }
   }
   lines.push('');
@@ -76,6 +84,14 @@ export function validateLayout(layout: DisplayLayout, known: DisplayOutput[]): s
   }
   if (!layout.outputs.some((e) => e.enabled))
     problems.push('at least one output must stay enabled');
+  const ws = new Set<string>();
+  for (const e of layout.outputs) {
+    for (const w of e.workspaces ?? []) {
+      if (typeof w !== 'string' || w === '') problems.push(`${e.name}: empty workspace name`);
+      else if (ws.has(w)) problems.push(`workspace ${w} is assigned to two outputs`);
+      ws.add(w);
+    }
+  }
   for (const [a, b] of overlappingPairs(layout.outputs)) problems.push(`${a} and ${b} overlap`);
   return problems;
 }
@@ -93,6 +109,7 @@ export function layoutFromOutputs(outputs: DisplayOutput[]): DisplayLayout {
       mode: o.mode,
       scale: o.scale,
       transform: o.transform,
+      workspaces: o.workspaces.map((w) => w.name),
     })),
   };
 }
