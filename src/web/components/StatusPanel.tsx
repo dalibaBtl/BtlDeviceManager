@@ -1,5 +1,6 @@
 import type { DiskUsage, FailedUnit, NetworkDevice, SystemStatus } from '../../shared/types.js';
 import {
+  describeRun,
   formatAgo,
   formatBytes,
   formatDuration,
@@ -73,11 +74,20 @@ function StatusBody({ s }: { s: SystemStatus }) {
         <Row
           k="Last playbook run"
           v={
-            s.playbook
-              ? `${formatAgo(Date.parse(s.playbook.runAt))} (${new Date(s.playbook.runAt).toLocaleString()}${s.playbook.playbook ? `, ${s.playbook.playbook}` : ''}${s.playbook.checkMode ? ', check mode' : ''})`
+            s.playbookRuns[0]
+              ? `${formatAgo(Date.parse(s.playbookRuns[0].at))} (${new Date(s.playbookRuns[0].at).toLocaleString()}), ${describeRun(s.playbookRuns[0])}`
               : 'no record on this machine'
           }
         />
+        {s.playbookRuns.length > 1 && (
+          <Row
+            k="Earlier runs"
+            v={s.playbookRuns
+              .slice(1)
+              .map((r) => `${new Date(r.at).toLocaleString()} ${describeRun(r)}`)
+              .join(' · ')}
+          />
+        )}
       </Card>
       <Card title="Hardware">
         <Row k="Model" v={[hw.vendor, hw.model].filter(Boolean).join(' ') || 'unknown'} />

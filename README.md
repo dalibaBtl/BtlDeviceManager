@@ -198,23 +198,19 @@ failing the page, since a half-broken machine is when the page is needed.
 Two things it cannot see without root: the product serial number, and a
 WireGuard unit that is set up but has never been started.
 
-_Last playbook run_ is read from `/etc/ansible/facts.d/btl.fact`, a standard
-place for local facts that Ansible itself does not write. The playbook has to
-record it; a task at the end of the common role does it:
+_Last playbook run_ comes from `/var/log/btl/ansible-runs.jsonl`, which the
+`base` role in btl-infra appends to on every run: one JSON object per line,
 
-```yaml
-- name: Record this run for the Status panel
-  ansible.builtin.copy:
-    dest: /etc/ansible/facts.d/btl.fact
-    content: >-
-      {{ {"playbook_run_at": now(utc=true).isoformat(),
-          "playbook": ansible_play_name,
-          "check_mode": ansible_check_mode} | to_json }}
-    mode: '0644'
-  when: not ansible_check_mode
+```json
+{ "at": "2026-10-11T21:01:27Z", "playbook": "Base", "user": "jan", "from": "192.0.2.5" }
 ```
 
-Until it does, the panel says "no record on this machine".
+`at` is UTC with the zone written out; a timestamp without a zone is still
+taken as UTC, never as local time. `from` is empty for a run started on the
+machine itself. The panel shows the latest run and a short history; it
+answers "when did a playbook last touch this machine", not what changed,
+since the task runs before the play's final statistics exist. Without the
+file the panel says "no record on this machine".
 
 ## Development
 

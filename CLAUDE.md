@@ -134,10 +134,11 @@ Done: the skeleton and all four panels from `docs/IDEA.md`: `Printers`,
   sway config).
 - `src/status/` is the `btl-status` CLI, read-only: `parse.ts` holds one
   pure parser per source (`systemctl -o json`, `findmnt -J`, `nmcli -t`,
-  `ip -j`, sysfs and /proc files, the playbook fact), `summary.ts` renders
+  `ip -j`, sysfs and /proc files, the playbook run log), `summary.ts` renders
   the text the CLI prints and the panel copies, `cli.ts` reads every source
-  in parallel and lets each one fail alone. The playbook fact
-  (`/etc/ansible/facts.d/btl.fact`) is written by btl-infra, format in README.
+  in parallel and lets each one fail alone. The run log
+  (`/var/log/btl/ansible-runs.jsonl`, JSONL, read from the tail) is written
+  by btl-infra's `base` role; format in README.
 - `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
   for each feature (`CliSource<R>` is generic over the parsed result: lists
   for three panels, one object for status) and holds the watchers

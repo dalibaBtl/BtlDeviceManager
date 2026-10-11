@@ -183,25 +183,41 @@ export function parseWgUnits(json: string): { unit: string; active: string; sub:
     .map((u) => ({ unit: u.unit as string, active: u.active ?? '', sub: u.sub ?? '' }));
 }
 
+/** How many runs `btl-status` reports; the panel shows the latest and a short history. */
+export const PLAYBOOK_RUNS_SHOWN = 5;
+
 /**
- * `/etc/ansible/facts.d/btl.fact`, written by the playbook at the end of a
- * run: `{"playbook_run_at": "<ISO 8601>", "playbook": "site.yml", "check_mode": false}`.
- * Anything without a usable timestamp counts as no record.
+ * `/var/log/btl/ansible-runs.jsonl`, one JSON object per run appended by the
+ * playbook: `{"at": "<ISO 8601, UTC>", "playbook": "…", "user": "…", "from": "…"}`.
+ * Read from the end, latest first; lines without a usable timestamp are
+ * skipped, including a half-written last one. A timestamp without a zone is
+ * taken as UTC rather than local time, which is what a naive `isoformat()`
+ * would otherwise turn into a run "2 hours ago".
  */
-export function parsePlaybookFact(text: string): PlaybookRun | null {
-  let data: Record<string, unknown>;
-  try {
-    data = JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return null;
+export function parsePlaybookRuns(
+  text: string,
+  limit: number = PLAYBOOK_RUNS_SHOWN,
+): PlaybookRun[] {
+  const runs: PlaybookRun[] = [];
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0 && runs.length < limit; i--) {
+    const line = lines[i]?.trim();
+    if (!line) continue;
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (typeof data.at !== 'string') continue;
+    const raw = data.at.trim();
+    const at = /(Z|[+-]\d\d:?\d\d)$/.test(raw) ? raw : `${raw}Z`;
+    if (Number.isNaN(Date.parse(at))) continue;
+    const text = (k: string) =>
+      typeof data[k] === 'string' && data[k] ? (data[k] as string) : null;
+    runs.push({ at, playbook: text('playbook'), user: text('user'), from: text('from') });
   }
-  const runAt = data.playbook_run_at;
-  if (typeof runAt !== 'string' || Number.isNaN(Date.parse(runAt))) return null;
-  return {
-    runAt,
-    playbook: typeof data.playbook === 'string' ? data.playbook : null,
-    checkMode: data.check_mode === true,
-  };
+  return runs;
 }
 
 /** `/proc/meminfo` → total and available in MiB. */

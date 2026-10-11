@@ -261,12 +261,15 @@ export interface StatusHardware {
   battery: { percent: number; status: string } | null;
 }
 
-/** The last configuration run, as recorded by the playbook in `/etc/ansible/facts.d/btl.fact`. */
+/** One configuration run, as the playbook appends it to `/var/log/btl/ansible-runs.jsonl`. */
 export interface PlaybookRun {
-  /** ISO 8601 timestamp. */
-  runAt: string;
+  /** ISO 8601 timestamp with zone. */
+  at: string;
+  /** The play's name, as Ansible reports it. */
   playbook: string | null;
-  checkMode: boolean;
+  /** Who ran it and from which address; empty for a run started on the machine itself. */
+  user: string | null;
+  from: string | null;
 }
 
 export interface FailedUnit {
@@ -333,7 +336,8 @@ export interface VpnStatus {
 export interface SystemStatus {
   host: StatusHost;
   hardware: StatusHardware;
-  playbook: PlaybookRun | null;
+  /** Latest first, at most a handful; empty when the machine has no record. */
+  playbookRuns: PlaybookRun[];
   failedUnits: FailedUnit[];
   disks: DiskUsage[];
   network: NetworkStatus;

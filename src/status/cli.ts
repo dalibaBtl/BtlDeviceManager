@@ -11,7 +11,7 @@
  * Exit codes: 0 success, 2 usage error.
  */
 import { execFile } from 'node:child_process';
-import { readFile, readdir } from 'node:fs/promises';
+import { open, readFile, readdir } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import type {
   NetworkDevice,
@@ -31,7 +31,7 @@ import {
   parseNmDevices,
   parseNmGeneral,
   parseOsRelease,
-  parsePlaybookFact,
+  parsePlaybookRuns,
   parseWgUnits,
   parseWifiList,
   parseWireguardLinks,
@@ -40,8 +40,10 @@ import { summaryText } from './summary.js';
 
 const TIMEOUT_MS = 15_000;
 
-/** Where the playbook records its last run; a standard place for local facts. */
-export const PLAYBOOK_FACT = '/etc/ansible/facts.d/btl.fact';
+/** Where the playbook appends one line per run (the `base` role in btl-infra). */
+export const PLAYBOOK_LOG = '/var/log/btl/ansible-runs.jsonl';
+/** Only the tail is read; a line is about 130 bytes, so this is years of runs. */
+const PLAYBOOK_LOG_TAIL = 64 * 1024;
 
 /** Entry point used by `cli/btl-status.js`; returns the process exit code. */
 export async function main(argv: string[]): Promise<number> {
@@ -70,11 +72,13 @@ const USAGE = 'usage: btl-status list [--json]\n';
 
 /** Reads every source in parallel; each one degrades to empty on its own. */
 export async function scan(): Promise<SystemStatus> {
-  const [host, hardware, playbook, failedSystem, failedUser, disks, network, vpn] =
+  const [host, hardware, playbookRuns, failedSystem, failedUser, disks, network, vpn] =
     await Promise.all([
       readHost(),
       readHardware(),
-      readOrNull(PLAYBOOK_FACT).then((t) => (t === null ? null : parsePlaybookFact(t))),
+      readTail(PLAYBOOK_LOG, PLAYBOOK_LOG_TAIL).then((t) =>
+        t === null ? [] : parsePlaybookRuns(t),
+      ),
       runOrEmpty('systemctl', ['list-units', '--state=failed', '-o', 'json']).then((t) =>
         t ? parseFailedUnits(t, 'system') : [],
       ),
@@ -94,7 +98,7 @@ export async function scan(): Promise<SystemStatus> {
   return {
     host,
     hardware,
-    playbook,
+    playbookRuns,
     failedUnits: [...failedSystem, ...failedUser],
     disks,
     network,
@@ -241,6 +245,24 @@ function runOrEmpty(cmd: string, args: string[]): Promise<string> {
       (err, stdout) => resolve(err ? '' : stdout),
     );
   });
+}
+
+/** The last `bytes` of a file, or `null` when it cannot be read. */
+async function readTail(file: string, bytes: number): Promise<string | null> {
+  try {
+    const fh = await open(file, 'r');
+    try {
+      const { size } = await fh.stat();
+      const start = Math.max(0, size - bytes);
+      const buf = Buffer.alloc(size - start);
+      const { bytesRead } = await fh.read(buf, 0, buf.length, start);
+      return buf.subarray(0, bytesRead).toString('utf8');
+    } finally {
+      await fh.close();
+    }
+  } catch {
+    return null;
+  }
 }
 
 async function readOrNull(file: string): Promise<string | null> {

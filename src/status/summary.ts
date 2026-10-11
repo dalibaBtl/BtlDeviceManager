@@ -3,7 +3,7 @@
  * what the panel's "Copy summary" puts on the clipboard, so the person on
  * the phone with support can paste it instead of reading numbers aloud.
  */
-import type { DiskUsage, SystemStatus } from '../shared/types.js';
+import type { DiskUsage, PlaybookRun, SystemStatus } from '../shared/types.js';
 
 export function summaryText(s: SystemStatus, now: number = Date.now()): string {
   const lines: string[] = [];
@@ -18,9 +18,10 @@ export function summaryText(s: SystemStatus, now: number = Date.now()): string {
       (hw.gpu ? `\n  GPU ${hw.gpu}` : '') +
       (hw.battery ? `\n  Battery ${hw.battery.percent} % (${hw.battery.status})` : ''),
   );
+  const last = s.playbookRuns[0];
   lines.push(
-    s.playbook
-      ? `Last playbook run: ${formatAgo(Date.parse(s.playbook.runAt), now)} (${s.playbook.playbook ?? 'unknown playbook'}${s.playbook.checkMode ? ', check mode' : ''})`
+    last
+      ? `Last playbook run: ${formatAgo(Date.parse(last.at), now)}, ${describeRun(last)}`
       : 'Last playbook run: no record on this machine',
   );
   lines.push(
@@ -64,6 +65,13 @@ export function summaryText(s: SystemStatus, now: number = Date.now()): string {
     for (const u of v.units) lines.push(`VPN unit ${u.unit}: ${u.active} (${u.sub})`);
   }
   return lines.join('\n') + '\n';
+}
+
+/** `site.yml by jan from 192.0.2.5`, with whatever parts the record has. */
+export function describeRun(r: PlaybookRun): string {
+  return [r.playbook ?? 'unknown playbook', r.user && `by ${r.user}`, r.from && `from ${r.from}`]
+    .filter(Boolean)
+    .join(' ');
 }
 
 export function describeDisk(d: DiskUsage): string {

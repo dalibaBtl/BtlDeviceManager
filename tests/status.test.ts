@@ -10,7 +10,7 @@ import {
   parseNmDevices,
   parseNmGeneral,
   parseOsRelease,
-  parsePlaybookFact,
+  parsePlaybookRuns,
   parseWgUnits,
   parseWifiList,
   parseWireguardLinks,
@@ -153,14 +153,22 @@ describe('system parsing', () => {
     ).toEqual([{ unit: 'wg-quick@wg0.service', active: 'active', sub: 'exited' }]);
   });
 
-  it('reads the playbook fact and rejects one without a timestamp', () => {
-    expect(
-      parsePlaybookFact(
-        '{"playbook_run_at":"2026-10-10T08:00:00Z","playbook":"site.yml","check_mode":false}',
-      ),
-    ).toEqual({ runAt: '2026-10-10T08:00:00Z', playbook: 'site.yml', checkMode: false });
-    expect(parsePlaybookFact('{"playbook":"site.yml"}')).toBeNull();
-    expect(parsePlaybookFact('not json')).toBeNull();
+  it('reads playbook runs from the end, skipping broken lines, zone-less as UTC', () => {
+    const log = [
+      '{"at":"2026-10-01T08:00:00Z","playbook":"Base","user":"jan","from":"192.0.2.5"}',
+      'not json',
+      '{"playbook":"no timestamp"}',
+      '{"at":"2026-10-11T20:55:27","playbook":"Base","user":"jan","from":""}',
+      '{"at":"2026-10-11T21:01:27Z","playbook":"Base","user":"jan","from":""}',
+      '{"at":"2026-10-11T22:00:0',
+    ].join('\n');
+    expect(parsePlaybookRuns(log)).toEqual([
+      { at: '2026-10-11T21:01:27Z', playbook: 'Base', user: 'jan', from: null },
+      { at: '2026-10-11T20:55:27Z', playbook: 'Base', user: 'jan', from: null },
+      { at: '2026-10-01T08:00:00Z', playbook: 'Base', user: 'jan', from: '192.0.2.5' },
+    ]);
+    expect(parsePlaybookRuns(log, 1)).toHaveLength(1);
+    expect(parsePlaybookRuns('')).toEqual([]);
   });
 
   it('reads cpu, memory, gpu and os-release', () => {
@@ -205,7 +213,7 @@ export const SAMPLE: SystemStatus = {
     gpu: 'Example GPU',
     battery: { percent: 50, status: 'Discharging' },
   },
-  playbook: null,
+  playbookRuns: [],
   failedUnits: [
     { unit: 'example.service', description: 'Example', sub: 'failed', scope: 'system' },
   ],
@@ -250,6 +258,16 @@ describe('summary', () => {
     );
     expect(text).toContain('Hardware: Example Book 14, BIOS 1.02');
     expect(text).toContain('Last playbook run: no record on this machine');
+    const withRun = summaryText(
+      {
+        ...SAMPLE,
+        playbookRuns: [
+          { at: '2026-10-11T09:00:00Z', playbook: 'Base', user: 'jan', from: '192.0.2.5' },
+        ],
+      },
+      Date.parse('2026-10-11T12:00:00Z'),
+    );
+    expect(withRun).toContain('Last playbook run: 3 hours ago, Base by jan from 192.0.2.5');
     expect(text).toContain('Failed services: example.service');
     expect(text).toContain('Disk /: 5.0 GB free of 100.0 GB (95 % used, ext4 on /dev/sda1)');
     expect(text).toContain('gateway 192.0.2.1 via wlp2s0');
