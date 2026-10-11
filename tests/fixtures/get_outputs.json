@@ -1,0 +1,125 @@
+[
+  {
+    "id": 3,
+    "type": "output",
+    "name": "eDP-1",
+    "make": "Example Display Corp.",
+    "model": "PANEL14-0 ",
+    "serial": "Unknown",
+    "active": true,
+    "power": true,
+    "scale": 1.0,
+    "transform": "normal",
+    "rect": {
+      "x": 0,
+      "y": 240,
+      "width": 1920,
+      "height": 1200
+    },
+    "current_mode": {
+      "width": 1920,
+      "height": 1200,
+      "refresh": 60000,
+      "picture_aspect_ratio": "none"
+    },
+    "modes": [
+      {
+        "width": 1920,
+        "height": 1200,
+        "refresh": 60000,
+        "picture_aspect_ratio": "none"
+      },
+      {
+        "width": 1920,
+        "height": 1200,
+        "refresh": 60000,
+        "picture_aspect_ratio": "none"
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "refresh": 60000,
+        "picture_aspect_ratio": "none"
+      }
+    ],
+    "focused": true
+  },
+  {
+    "id": 20,
+    "type": "output",
+    "name": "HDMI-A-1",
+    "make": "Example",
+    "model": "UW3440",
+    "serial": "SN0000001",
+    "active": true,
+    "power": true,
+    "scale": 1.0,
+    "transform": "normal",
+    "rect": {
+      "x": 1920,
+      "y": 0,
+      "width": 3440,
+      "height": 1440
+    },
+    "current_mode": {
+      "width": 3440,
+      "height": 1440,
+      "refresh": 100000,
+      "picture_aspect_ratio": "none"
+    },
+    "modes": [
+      {
+        "width": 3440,
+        "height": 1440,
+        "refresh": 100000,
+        "picture_aspect_ratio": "none"
+      },
+      {
+        "width": 2560,
+        "height": 1080,
+        "refresh": 60000,
+        "picture_aspect_ratio": "64:27"
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "refresh": 60000,
+        "picture_aspect_ratio": "none"
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "refresh": 60000,
+        "picture_aspect_ratio": "16:9"
+      },
+      {
+        "width": 1920,
+        "height": 1080,
+        "refresh": 60000,
+        "picture_aspect_ratio": "64:27"
+      }
+    ],
+    "focused": false
+  },
+  {
+    "id": null,
+    "type": "output",
+    "name": "HEADLESS-1",
+    "make": "Unknown",
+    "model": "Unknown",
+    "serial": "Unknown",
+    "active": false,
+    "power": false,
+    "scale": null,
+    "transform": null,
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0
+    },
+    "current_mode": null,
+    "modes": [],
+    "focused": null
+  }
+]

@@ -1,4 +1,4 @@
-// Build script: bundles the server (Node ESM), the printers CLI (Node ESM) and
+// Build script: bundles the server, the printers and displays CLIs (Node ESM) and
 // the web front-end (browser) with esbuild. `node build.mjs --watch` rebuilds on change.
 import { context, build } from 'esbuild';
 import { cp, mkdir } from 'node:fs/promises';
@@ -35,6 +35,13 @@ const printersCli = {
 };
 
 /** @type {import('esbuild').BuildOptions} */
+const displaysCli = {
+  ...node,
+  entryPoints: ['src/displays/cli.ts'],
+  outfile: 'dist/displays-cli.js',
+};
+
+/** @type {import('esbuild').BuildOptions} */
 const web = {
   entryPoints: ['src/web/main.tsx'],
   outfile: 'dist/web/main.js',
@@ -52,7 +59,7 @@ const web = {
 await mkdir('dist/web', { recursive: true });
 await cp('src/web/index.html', 'dist/web/index.html');
 
-const all = [server, printersCli, web];
+const all = [server, printersCli, displaysCli, web];
 if (watch) {
   const contexts = await Promise.all(all.map(context));
   await Promise.all(contexts.map((c) => c.watch()));

@@ -52,6 +52,7 @@ export interface PrinterList {
 export type ServerMessage =
   | { type: 'printers'; items: Printer[]; scannedAt: number | null; error: string | null }
   | { type: 'scanning'; scanning: boolean }
+  | { type: 'displays'; items: DisplayOutput[]; scannedAt: number | null; error: string | null }
   | { type: 'term-data'; data: string }
   | { type: 'term-exit'; code: number }
   | { type: 'notice'; level: 'info' | 'error'; text: string };
@@ -65,7 +66,8 @@ export type TerminalAction =
   | { action: 'printer-add'; id: string }
   | { action: 'printer-default'; id: string }
   | { action: 'printer-test'; id: string }
-  | { action: 'printer-remove'; id: string };
+  | { action: 'printer-remove'; id: string }
+  | { action: 'display-apply'; file: string };
 
 /** Messages sent from client to server over the WebSocket. */
 export type ClientMessage =
@@ -73,3 +75,81 @@ export type ClientMessage =
   | { type: 'term-input'; data: string }
   | { type: 'term-resize'; cols: number; rows: number }
   | { type: 'term-run'; run: TerminalAction };
+
+// ---- displays ----------------------------------------------------------------
+
+/** One video mode as sway reports it; `refresh` is in millihertz (60000 = 60 Hz). */
+export interface DisplayMode {
+  width: number;
+  height: number;
+  refresh: number;
+}
+
+/** Output rotation and flip, in sway's vocabulary. */
+export type Transform =
+  'normal' | '90' | '180' | '270' | 'flipped' | 'flipped-90' | 'flipped-180' | 'flipped-270';
+
+export const TRANSFORMS: Transform[] = [
+  'normal',
+  '90',
+  '180',
+  '270',
+  'flipped',
+  'flipped-90',
+  'flipped-180',
+  'flipped-270',
+];
+
+/** Scale factors offered in the UI; sway accepts any number, but these are the ones that render well. */
+export const SCALES = [1, 1.25, 1.5, 2];
+
+/**
+ * One physical output as sway sees it. `identifier` is sway's
+ * `"make model serial"` and is what the config file addresses, because the
+ * connector `name` changes with the port the cable is plugged into.
+ */
+export interface DisplayOutput {
+  name: string;
+  identifier: string;
+  make: string;
+  model: string;
+  serial: string;
+  /** `false` for an output sway knows but has disabled. */
+  enabled: boolean;
+  /** Logical position and size, already after scale and transform; zero for a disabled output. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Current mode, or the preferred (first) mode for a disabled output. */
+  mode: DisplayMode;
+  modes: DisplayMode[];
+  scale: number;
+  transform: Transform;
+  focused: boolean;
+}
+
+/** What the user wants one output to be; the unit of `btl-displays apply`. */
+export interface LayoutEntry {
+  identifier: string;
+  /** Connector name at the time of editing, kept for the comment in the config file. */
+  name: string;
+  enabled: boolean;
+  x: number;
+  y: number;
+  mode: DisplayMode;
+  scale: number;
+  transform: Transform;
+}
+
+/** The whole arrangement, written to `~/.config/sway/config.d/outputs.conf`. */
+export interface DisplayLayout {
+  version: 1;
+  outputs: LayoutEntry[];
+}
+
+/** Result of one `btl-displays list --json` run. */
+export interface DisplayList {
+  outputs: DisplayOutput[];
+  scannedAt: number;
+}
