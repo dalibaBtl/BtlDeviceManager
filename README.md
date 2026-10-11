@@ -1,4 +1,4 @@
-# BTL Manager
+# BTL Device Manager
 
 Desktop app for the person sitting at a BTL workstation (Debian 13, sway) to
 manage **that one machine** without a terminal: printers and displays today;
@@ -34,14 +34,14 @@ password prompt and the error. Licensed under [MIT](LICENSE).
 ## Install
 
 ```bash
-git clone https://github.com/dalibaBtl/BtlManager.git && cd BtlManager
+git clone https://github.com/dalibaBtl/BtlDeviceManager.git && cd BtlDeviceManager
 npm ci
 npm run build
 sudo ln -sf "$PWD/cli/btl-printers.js" /usr/local/bin/btl-printers
 ```
 
 The app registers itself with the app launcher (Mod+D, rofi, …) on its first
-start by writing `~/.local/share/applications/btl-manager.desktop` with
+start by writing `~/.local/share/applications/btl-device-manager.desktop` with
 absolute paths; `npm run install-desktop` does the same explicitly and
 `npm run install-desktop -- --remove` takes it out again.
 
@@ -56,14 +56,14 @@ From the launcher, or:
 
 ```bash
 npm start                          # server in the background, app window opens
-node cli/btl-manager.js --no-open  # server only; prints the URL
-node cli/btl-manager.js --foreground
+node cli/btl-device-manager.js --no-open  # server only; prints the URL
+node cli/btl-device-manager.js --foreground
 ```
 
 The server listens on `127.0.0.1` with a per-launch token, logs to
-`~/.cache/btl-manager/server.log` and exits ten seconds after the last window
-closes. The app window is started with `--class=btl-manager`; under Wayland
-match the window title `BTL Manager` in sway rules.
+`~/.cache/btl-device-manager/server.log` and exits ten seconds after the last window
+closes. The app window is started with `--class=btl-device-manager`; under Wayland
+match the window title `BTL Device Manager` in sway rules.
 
 ## Printers
 
@@ -113,13 +113,20 @@ switch. **Apply…** shows the current `~/.config/sway/config.d/outputs.conf`
 next to the file that would replace it; after confirming, the terminal runs
 
 ```bash
-btl-displays apply ~/.cache/btl-manager/layouts/layout-<timestamp>.json
+btl-displays apply ~/.cache/btl-device-manager/layouts/layout-<timestamp>.json
 ```
 
 which writes the file, validates the whole sway config (`sway -C`) and runs
 `swaymsg reload`. Nothing here needs `sudo`. The file is rewritten entirely;
 hand-written comments in it do not survive, which is why the dialog shows it
 first.
+
+Each rectangle also shows the workspaces currently on that display. Drag a
+workspace label onto another display to move it there right away
+(`btl-displays move-workspace`, no reload). **Apply…** additionally writes a
+`workspace "<name>" output "<identifier>"` line for every existing workspace,
+so after a monitor is unplugged and plugged back in the workspaces return to
+it instead of piling up on the laptop panel.
 
 Displays are matched by sway's `"make model serial"` identifier, not by
 connector name, so the arrangement holds when a cable moves to another port.
@@ -130,6 +137,7 @@ headless output used for streaming is hidden because the role manages it.
 btl-displays list [--json]
 btl-displays preview layout.json     # the outputs.conf a layout would produce
 btl-displays config                  # the current outputs.conf
+btl-displays move-workspace "3: ai" "<make model serial>"
 ```
 
 ## Development

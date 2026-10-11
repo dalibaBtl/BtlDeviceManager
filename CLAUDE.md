@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What it is
 
-`BtlManager`: a desktop app that lets the person sitting at a BTL workstation
+`BtlDeviceManager`: a desktop app that lets the person sitting at a BTL workstation
 manage **that one machine** — printers first, later displays, the Windows VM
 and a read-only status panel. Product spec: `docs/IDEA.md` (Czech; **the UI is
 English only**). Read it before writing code; it carries the reasoning, this
@@ -114,9 +114,13 @@ Done: the skeleton, the `Printers` panel and the `Displays` panel.
 - `src/displays/` is the `btl-displays` CLI: `sway.ts` parses `get_outputs`
   (identifier is `"make model serial"` verbatim, `HEADLESS-*` hidden),
   `geometry.ts` is shared with the canvas (logical size, snapping, overlap),
-  `config.ts` renders and validates `outputs.conf`. `apply <layout.json>`
-  writes the file, runs `sway -C` and `swaymsg reload`; the server writes the
-  layout file under `~/.cache/btl-manager/layouts/` and types the command.
+  `config.ts` renders and validates `outputs.conf`, including one
+  `workspace … output …` line per existing workspace. `apply <layout.json>`
+  writes the file, runs `sway -C`, `swaymsg reload` and then moves open
+  workspaces that still sit elsewhere; the server writes the layout file
+  under `~/.cache/btl-device-manager/layouts/` and types the command.
+  `move-workspace` is the one display action run directly (no root, one-line
+  failure, and it is triggered by a drag).
 - `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
   for each feature and holds the watchers (`/etc/cups`, `swaymsg -t
 subscribe`). `buildSteps` validates a printer id against the last listing,
