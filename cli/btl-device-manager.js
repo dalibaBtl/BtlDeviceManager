@@ -34,7 +34,7 @@ if (flag('--foreground')) {
   // Self-service: the first start registers the app with the launcher (Mod+D),
   // and a moved clone or a new Node re-registers it. Cheap and idempotent.
   if (ensureDesktopEntry() === 'wrote')
-    console.error('registered BTL Manager with the app launcher');
+    console.error('registered BTL Device Manager with the app launcher');
   detach();
 }
 
@@ -94,7 +94,7 @@ function openAppWindow(url) {
   const chromeArgs = [
     `--app=${url}`,
     `--user-data-dir=${profile}`,
-    '--class=btl-manager',
+    '--class=btl-device-manager',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-extensions',

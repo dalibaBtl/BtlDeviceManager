@@ -1,4 +1,4 @@
-# BTL Manager
+# BTL Device Manager
 
 Desktopová aplikace pro správu vlastní pracovní stanice. **UI je anglicky.**
 

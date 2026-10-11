@@ -5,7 +5,7 @@
 
 ## Context
 
-BTL Manager lets a workstation user do what the `desktop` role in btl-infra
+BTL Device Manager lets a workstation user do what the `desktop` role in btl-infra
 cannot decide for them: which printer to set up, how monitors are arranged,
 when to start the VM. The audience is not a developer, and the operations
 need `sudo` or can fail in ways the user must be able to report.

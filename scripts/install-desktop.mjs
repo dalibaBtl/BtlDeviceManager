@@ -1,4 +1,4 @@
-// Registers BTL Manager with the desktop launcher of the current user as an
+// Registers BTL Device Manager with the desktop launcher of the current user as an
 // XDG .desktop entry with absolute paths, so it works regardless of what PATH
 // the launcher inherits. The launcher calls `ensureDesktopEntry()` on every
 // start, so the first `npm start` is enough to make the app appear under
@@ -17,16 +17,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const cli = path.resolve(here, '..', 'cli', 'btl-manager.js');
+const cli = path.resolve(here, '..', 'cli', 'btl-device-manager.js');
 const printersCli = path.resolve(here, '..', 'cli', 'btl-printers.js');
-const name = 'BTL Manager';
+const name = 'BTL Device Manager';
 const systemLink = '/usr/local/bin/btl-printers';
 
 const dir = path.join(
   process.env.XDG_DATA_HOME ?? path.join(homedir(), '.local', 'share'),
   'applications',
 );
-const file = path.join(dir, 'btl-manager.desktop');
+const file = path.join(dir, 'btl-device-manager.desktop');
+/** Entry written before the rename to BTL Device Manager; removed so Mod+D does not show two. */
+const legacyFile = path.join(dir, 'btl-manager.desktop');
 
 /** The entry's content for this clone and this Node binary. */
 function entryText() {
@@ -40,7 +42,7 @@ function entryText() {
     'Icon=preferences-system',
     'Terminal=false',
     'Categories=System;Settings;',
-    'StartupWMClass=btl-manager',
+    'StartupWMClass=btl-device-manager',
     'Keywords=printer;display;monitor;vm;',
     '',
   ].join('\n');
@@ -57,6 +59,7 @@ export function ensureDesktopEntry() {
     if (existsSync(file) && readFileSync(file, 'utf8') === text) return 'unchanged';
     mkdirSync(dir, { recursive: true });
     writeFileSync(file, text);
+    rmSync(legacyFile, { force: true });
     refreshDatabase();
     return 'wrote';
   } catch {
@@ -94,7 +97,9 @@ function quote(p) {
 // Run as `npm run install-desktop`: explicit, verbose, with the symlink hint.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.platform !== 'linux') {
-    console.error(`BTL Manager runs on Linux only (CUPS, sway, libvirt); got ${process.platform}`);
+    console.error(
+      `BTL Device Manager runs on Linux only (CUPS, sway, libvirt); got ${process.platform}`,
+    );
     process.exit(1);
   }
   if (process.argv.includes('--remove')) {

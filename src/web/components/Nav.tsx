@@ -5,7 +5,7 @@ export function Nav() {
   return (
     <nav class="pane nav">
       <header>
-        <span class="title">BTL Manager</span>
+        <span class="title">BTL Device Manager</span>
       </header>
       <ul class="nav-list">
         {PANELS.map((p) => (

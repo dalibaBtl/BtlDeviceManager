@@ -68,7 +68,7 @@ describe('buildSteps', () => {
 });
 
 describe('buildSteps for displays', () => {
-  const layouts = mkdtempSync(path.join(tmpdir(), 'btlm-layouts-'));
+  const layouts = mkdtempSync(path.join(tmpdir(), 'btldm-layouts-'));
   const file = path.join(layouts, 'layout-1.json');
   writeFileSync(file, '{}');
   const c = { printers: 'btl-printers', displays: '/x/cli/btl-displays.js', layouts };
@@ -94,7 +94,7 @@ describe('buildSteps for displays', () => {
 });
 
 describe('printersCommand', () => {
-  const cli = '/home/u/dev/BtlManager/cli/btl-printers.js';
+  const cli = '/home/u/dev/BtlDeviceManager/cli/btl-printers.js';
 
   it('uses the short name when /usr/local/bin links to this clone', () => {
     const links: Record<string, string> = { '/usr/local/bin/btl-printers': cli, [cli]: cli };

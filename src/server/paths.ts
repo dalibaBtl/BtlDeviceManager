@@ -5,10 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 /**
  * Directory for disposable per-user data (browser profile, server log):
- * `$XDG_CACHE_HOME/btl-manager`. Linux only, like the rest of the app.
+ * `$XDG_CACHE_HOME/btl-device-manager`. Linux only, like the rest of the app.
  */
 export function cacheDir(): string {
-  return path.join(process.env.XDG_CACHE_HOME ?? path.join(homedir(), '.cache'), 'btl-manager');
+  return path.join(
+    process.env.XDG_CACHE_HOME ?? path.join(homedir(), '.cache'),
+    'btl-device-manager',
+  );
 }
 
 /** Where the `desktop` role in btl-infra links the CLI so that `sudo` finds it. */

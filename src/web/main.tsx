@@ -71,8 +71,8 @@ function useViewport(): { height: number } {
 }
 
 function App() {
-  const [nav, setNav] = usePersistedSize('btlm.nav', 200);
-  const [termPref, setTerm] = usePersistedSize('btlm.term', 260);
+  const [nav, setNav] = usePersistedSize('btldm.nav', 200);
+  const [termPref, setTerm] = usePersistedSize('btldm.term', 260);
   const { height } = useViewport();
   // The terminal gives way to the panel rather than the other way round.
   const term = Math.max(MIN_TERM, Math.min(termPref, height - MIN_PANEL - 6));

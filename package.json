@@ -1,26 +1,26 @@
 {
-  "name": "btl-manager",
+  "name": "btl-device-manager",
   "version": "0.1.0",
-  "description": "BTL Manager - manage the workstation you are sitting at: printers, displays, virtual machine, status",
+  "description": "BTL Device Manager - printers, displays, virtual machine and status of the workstation you are sitting at",
   "private": true,
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dalibaBtl/BtlManager.git"
+    "url": "https://github.com/dalibaBtl/BtlDeviceManager.git"
   },
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "btl-manager": "cli/btl-manager.js",
+    "btl-device-manager": "cli/btl-device-manager.js",
     "btl-printers": "cli/btl-printers.js",
     "btl-displays": "cli/btl-displays.js"
   },
   "scripts": {
     "build": "node build.mjs",
     "dev": "node build.mjs --watch",
-    "start": "node cli/btl-manager.js",
+    "start": "node cli/btl-device-manager.js",
     "install-desktop": "node scripts/install-desktop.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
