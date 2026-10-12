@@ -6,6 +6,7 @@
  *     btl-printers default <id>    make a queue the system default (sudo)
  *     btl-printers test <id>       print the CUPS test page
  *     btl-printers remove <id>     delete a queue (sudo)
+ *     btl-printers cancel <id> [job]  cancel one job, or every job on the queue (sudo)
  *
  * The logic lives here rather than in the app so it can be tested without a
  * window, run over SSH, and read in the terminal as one short line. Every
@@ -18,6 +19,7 @@ import { parseAvahi, type DiscoveredPrinter } from './avahi.js';
 import {
   DRIVERLESS,
   LPADMIN,
+  cancelArgs,
   lpTestPageArgs,
   lpadminAddArgs,
   lpadminDefaultArgs,
@@ -62,6 +64,9 @@ export async function main(argv: string[]): Promise<number> {
       case 'remove':
         await remove(requireId(rest));
         return 0;
+      case 'cancel':
+        await cancel(requireId(rest), requireJob(rest));
+        return 0;
       case undefined:
       case '-h':
       case '--help':
@@ -83,12 +88,21 @@ const USAGE = `usage: btl-printers list [--json]
        btl-printers default <id>    (sudo)
        btl-printers test <id>
        btl-printers remove <id>     (sudo)
+       btl-printers cancel <id> [job]  one job, or all jobs on the queue (sudo)
 `;
 
 function requireId(rest: string[]): string {
   const id = rest.find((a) => !a.startsWith('-'));
   if (!id) throw new CliError(`missing printer id\n${USAGE}`, 2);
   return id;
+}
+
+/** The optional job number after the id; anything else is a usage error. */
+function requireJob(rest: string[]): number | null {
+  const job = rest.filter((a) => !a.startsWith('-'))[1];
+  if (job === undefined) return null;
+  if (!/^\d+$/.test(job)) throw new CliError(`job must be a number, got ${job}\n${USAGE}`, 2);
+  return Number(job);
 }
 
 // ---- commands ---------------------------------------------------------------
@@ -118,6 +132,9 @@ function status(p: Printer): string {
   if (!p.queue) return 'not set up';
   const parts = [p.queue.isDefault ? 'default' : 'queue', p.queue.state];
   if (!p.discovered) parts.push('not seen on network');
+  const n = p.queue.jobs.length;
+  if (n > 0) parts.push(`${n} job${n === 1 ? '' : 's'} waiting`);
+  parts.push(...p.queue.reasons);
   return parts.join(', ');
 }
 
@@ -173,6 +190,26 @@ async function remove(id: string): Promise<void> {
   await runVisible(LPADMIN, lpadminRemoveArgs(q.name));
 }
 
+/**
+ * Cancels one job or all of them. A job number that `lpstat` no longer lists
+ * is reported rather than passed on, so a job that just finished is not
+ * confused with a typo. Afterwards the remaining jobs are printed.
+ */
+async function cancel(id: string, job: number | null): Promise<void> {
+  const q = requireQueue((await scan()).printers, id);
+  if (q.jobs.length === 0) {
+    process.stdout.write(`${q.name}: no jobs waiting\n`);
+    return;
+  }
+  if (job !== null && !q.jobs.some((j) => j.id === job)) {
+    const ids = q.jobs.map((j) => j.id).join(', ');
+    throw new CliError(`job ${job} is not on ${q.name}; waiting: ${ids}`, 2);
+  }
+  await runVisible('cancel', cancelArgs(q.name, job));
+  const left = await run('lpstat', ['-o', q.name], [0, 1]);
+  process.stdout.write(left.trim() ? left : `${q.name}: no jobs waiting\n`);
+}
+
 function findPrinter(printers: Printer[], id: string): Printer {
   const wanted = id.toLowerCase();
   const found = printers.find(
@@ -205,12 +242,13 @@ async function discover(): Promise<DiscoveredPrinter[]> {
 
 async function readQueues(): Promise<PrintQueue[]> {
   // `lpstat -v`/`-p` exit 1 with "No destinations added." when CUPS has no queues.
-  const [v, p, d] = await Promise.all([
+  const [v, p, d, o] = await Promise.all([
     run('lpstat', ['-v'], [0, 1]),
-    run('lpstat', ['-p'], [0, 1]),
+    run('lpstat', ['-l', '-p'], [0, 1]),
     run('lpstat', ['-d'], [0, 1]),
+    run('lpstat', ['-l', '-o'], [0, 1]),
   ]);
-  return parseLpstat(v, p, d);
+  return parseLpstat(v, p, d, o);
 }
 
 // ---- processes --------------------------------------------------------------

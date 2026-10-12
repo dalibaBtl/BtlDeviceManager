@@ -19,7 +19,17 @@ const discovered: Printer = {
 const withQueue: Printer = {
   ...discovered,
   id: "it's",
-  queue: { name: "it's", uri: discovered.uri!, state: 'idle', isDefault: false },
+  queue: {
+    name: "it's",
+    uri: discovered.uri!,
+    state: 'idle',
+    isDefault: false,
+    reasons: [],
+    jobs: [
+      { id: 7, user: 'alice', sizeBytes: 1024, submittedAt: null, reasons: [] },
+      { id: 8, user: 'root', sizeBytes: 2048, submittedAt: null, reasons: ['job-printing'] },
+    ],
+  },
 };
 const known = { printers: [discovered, withQueue], vms: [], failedUnits: [] };
 const ctx = (printers: string) => ({
@@ -27,6 +37,7 @@ const ctx = (printers: string) => ({
   displays: '/x/cli/btl-displays.js',
   vm: '/x/cli/btl-vm.js',
   layouts: '/tmp/none',
+  user: 'alice',
 });
 
 describe('buildSteps', () => {
@@ -40,6 +51,25 @@ describe('buildSteps', () => {
     expect(
       buildSteps({ action: 'printer-remove', id: "it's" }, known, ctx('/x/cli/btl-printers.js')),
     ).toEqual(["sudo /x/cli/btl-printers.js remove 'it'\\''s'"]);
+  });
+
+  it('cancels own jobs without sudo, everything else with it', () => {
+    const c = ctx('btl-printers');
+    expect(buildSteps({ action: 'printer-cancel', id: "it's", job: 7 }, known, c)).toEqual([
+      "btl-printers cancel 'it'\\''s' 7",
+    ]);
+    expect(buildSteps({ action: 'printer-cancel', id: "it's", job: 8 }, known, c)).toEqual([
+      "sudo btl-printers cancel 'it'\\''s' 8",
+    ]);
+    expect(buildSteps({ action: 'printer-cancel', id: "it's", job: null }, known, c)).toEqual([
+      "sudo btl-printers cancel 'it'\\''s'",
+    ]);
+    expect(() => buildSteps({ action: 'printer-cancel', id: "it's", job: 9 }, known, c)).toThrow(
+      /no longer waiting/,
+    );
+    expect(() =>
+      buildSteps({ action: 'printer-cancel', id: discovered.id, job: null }, known, c),
+    ).toThrow(/no queue/);
   });
 
   it('prints the test page without sudo', () => {

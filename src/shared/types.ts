@@ -16,6 +16,27 @@ export interface PrintQueue {
   state: QueueState;
   /** Whether `lpstat -d` names this queue as the default destination. */
   isDefault: boolean;
+  /**
+   * CUPS printer-state-reasons as `lpstat -l -p` lists them under `Alerts:`
+   * (`media-empty-report`, `offline-report`, …); empty when the queue has none.
+   * These are the words behind the icon a user cannot read out on the phone.
+   */
+  reasons: string[];
+  /** Jobs that have not finished, oldest first; what `lpstat -o` lists. */
+  jobs: PrintJob[];
+}
+
+/** One unfinished job on a queue, from `lpstat -l -o`. */
+export interface PrintJob {
+  /** CUPS job number; `cancel <queue>-<id>` removes it. */
+  id: number;
+  /** Account that submitted the job; cancelling someone else's needs root. */
+  user: string;
+  sizeBytes: number;
+  /** Epoch milliseconds the job was submitted; `null` when the date did not parse. */
+  submittedAt: number | null;
+  /** Job state reasons such as `job-printing` or `job-hold-until-specified`. */
+  reasons: string[];
 }
 
 /**
@@ -77,6 +98,7 @@ export type TerminalAction =
   | { action: 'printer-default'; id: string }
   | { action: 'printer-test'; id: string }
   | { action: 'printer-remove'; id: string }
+  | { action: 'printer-cancel'; id: string; job: number | null }
   | { action: 'display-apply'; file: string }
   | { action: 'vm-start'; name: string }
   | { action: 'vm-shutdown'; name: string }

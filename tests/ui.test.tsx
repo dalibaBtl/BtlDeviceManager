@@ -36,7 +36,18 @@ const ready: Printer = {
   ...found,
   id: 'Office',
   name: 'Office Printer',
-  queue: { name: 'Office', uri: found.uri!, state: 'idle', isDefault: true },
+  queue: { name: 'Office', uri: found.uri!, state: 'idle', isDefault: true, reasons: [], jobs: [] },
+};
+const busy: Printer = {
+  ...ready,
+  queue: {
+    ...ready.queue!,
+    state: 'printing',
+    jobs: [
+      { id: 12, user: 'alice', sizeBytes: 1024, submittedAt: null, reasons: ['job-printing'] },
+      { id: 13, user: 'alice', sizeBytes: 3_000_000, submittedAt: null, reasons: [] },
+    ],
+  },
 };
 const asleep: Printer = {
   id: 'Old',
@@ -46,7 +57,14 @@ const asleep: Printer = {
   ip: null,
   uri: null,
   discovered: false,
-  queue: { name: 'Old', uri: 'ipp://old.local:631/ipp/print', state: 'idle', isDefault: false },
+  queue: {
+    name: 'Old',
+    uri: 'ipp://old.local:631/ipp/print',
+    state: 'idle',
+    isDefault: false,
+    reasons: [],
+    jobs: [],
+  },
 };
 
 describe('PrintersPanel', () => {
@@ -90,6 +108,19 @@ describe('PrintersPanel', () => {
     expect(html).toContain('queue Office');
   });
 
+  it('lists waiting jobs under the printer with Cancel and Cancel all', async () => {
+    const { state, PrintersPanel } = await load();
+    state.printers.value = [busy];
+    const html = render(<PrintersPanel />);
+    expect(html).toContain('Printing');
+    expect(html).toContain('job 12');
+    expect(html).toContain('job 13');
+    expect(html).toContain('2.9 MiB');
+    expect(html).toContain('printing');
+    expect(html).toContain('Cancel all');
+    expect(html.match(/>Cancel</g)).toHaveLength(2);
+  });
+
   it('keeps a sleeping printer usable and says it is away', async () => {
     const { state, PrintersPanel } = await load();
     state.printers.value = [asleep];
@@ -116,6 +147,24 @@ describe('helpers', () => {
     );
     expect(printerStatus(asleep).cls).toBe('away');
     expect(printerStatus(found).cls).toBe('new');
+  });
+
+  it('printerStatus puts alerts and waiting jobs before Ready', async () => {
+    const { printerStatus } = await load();
+    const q = ready.queue!;
+    expect(
+      printerStatus({ ...ready, queue: { ...q, reasons: ['media-empty-report'] } }).label,
+    ).toBe('Out of paper');
+    expect(
+      printerStatus({ ...ready, queue: { ...q, reasons: ['cups-waiting-for-job-completed'] } })
+        .label,
+    ).toBe('Default');
+    expect(
+      printerStatus({
+        ...ready,
+        queue: { ...q, jobs: [{ id: 1, user: 'a', sizeBytes: 1, submittedAt: null, reasons: [] }] },
+      }).label,
+    ).toBe('1 job waiting');
   });
 });
 

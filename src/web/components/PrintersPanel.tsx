@@ -1,4 +1,4 @@
-import type { Printer } from '../../shared/types.js';
+import type { PrintJob, Printer } from '../../shared/types.js';
 import {
   printers,
   printersError,
@@ -57,9 +57,12 @@ export function PrintersPanel() {
               </tr>
             </thead>
             <tbody>
-              {items.map((p) => (
-                <PrinterRow key={p.id} printer={p} />
-              ))}
+              {items.map((p) => [
+                <PrinterRow key={p.id} printer={p} />,
+                ...(p.queue?.jobs ?? []).map((j) => (
+                  <JobRow key={`${p.id}-${j.id}`} printer={p} job={j} />
+                )),
+              ])}
             </tbody>
           </table>
         )}
@@ -79,8 +82,45 @@ export function printerStatus(p: Printer): { label: string; cls: string } {
   if (!p.queue) return { label: 'Not set up', cls: 'new' };
   if (!p.discovered) return { label: 'Not seen on network', cls: 'away' };
   if (p.queue.state === 'stopped') return { label: 'Queue stopped', cls: 'warn' };
+  const alert = p.queue.reasons.map(describeReason).find((r) => r !== null);
+  if (alert) return { label: alert, cls: 'warn' };
+  if (p.queue.state === 'printing') return { label: 'Printing', cls: 'ok' };
+  const n = p.queue.jobs.length;
+  if (n > 0) return { label: `${n} job${n === 1 ? '' : 's'} waiting`, cls: 'warn' };
   if (p.queue.isDefault) return { label: 'Default', cls: 'ok' };
   return { label: 'Ready', cls: 'ok' };
+}
+
+/**
+ * The printer-state-reasons a user can act on, in plain words. Anything else
+ * (`cups-waiting-for-job-completed`, vendor-specific keywords) is left to the
+ * CLI output, where support can read the raw keyword.
+ */
+export function describeReason(reason: string): string | null {
+  const key = reason.replace(/-(report|warning|error)$/, '');
+  switch (key) {
+    case 'media-empty':
+    case 'media-needed':
+      return 'Out of paper';
+    case 'media-jam':
+      return 'Paper jam';
+    case 'toner-empty':
+    case 'marker-supply-empty':
+      return 'Out of ink';
+    case 'toner-low':
+    case 'marker-supply-low':
+      return 'Ink low';
+    case 'cover-open':
+    case 'door-open':
+      return 'Cover open';
+    case 'offline':
+    case 'connecting-to-device':
+      return 'Printer unreachable';
+    case 'paused':
+      return 'Paused';
+    default:
+      return null;
+  }
 }
 
 function PrinterRow({ printer: p }: { printer: Printer }) {
@@ -93,8 +133,17 @@ function PrinterRow({ printer: p }: { printer: Printer }) {
     );
     if (ok) runInTerminal({ action: 'printer-remove', id: p.id });
   };
+  const cancelAll = async () => {
+    const n = p.queue?.jobs.length ?? 0;
+    const ok = await askConfirm(
+      'Cancel all jobs?',
+      `This removes all ${n} jobs waiting on "${p.queue?.name}". Anything already sent to the printer may still come out.`,
+      { okLabel: 'Cancel all', danger: true },
+    );
+    if (ok) runInTerminal({ action: 'printer-cancel', id: p.id, job: null });
+  };
   return (
-    <tr class={p.discovered ? '' : 'away'}>
+    <tr class={`${p.discovered ? '' : 'away'}${p.queue?.jobs.length ? ' has-jobs' : ''}`}>
       <td class="name">
         {p.name}
         {p.queue && p.queue.name !== p.name && <span class="meta"> queue {p.queue.name}</span>}
@@ -123,6 +172,15 @@ function PrinterRow({ printer: p }: { printer: Printer }) {
             Test page
           </button>
         )}
+        {p.queue && p.queue.jobs.length > 1 && (
+          <button
+            class="quiet"
+            title="Cancel every job waiting on this queue"
+            onClick={() => void cancelAll()}
+          >
+            Cancel all
+          </button>
+        )}
         {p.queue && (
           <button class="quiet" title="Delete the queue" onClick={() => void remove()}>
             Remove
@@ -131,6 +189,53 @@ function PrinterRow({ printer: p }: { printer: Printer }) {
       </td>
     </tr>
   );
+}
+
+/** One unfinished job under its printer; cancelling it is typed like every other change. */
+function JobRow({ printer: p, job: j }: { printer: Printer; job: PrintJob }) {
+  const state = j.reasons.includes('job-printing')
+    ? 'printing'
+    : j.reasons.some((r) => r.startsWith('job-hold'))
+      ? 'held'
+      : 'waiting';
+  return (
+    <tr class="job">
+      <td class="name">
+        <span class="meta">job {j.id}</span>
+      </td>
+      <td>
+        {j.user} · {formatSize(j.sizeBytes)}
+      </td>
+      <td class="meta">{j.submittedAt === null ? '–' : formatTime(j.submittedAt)}</td>
+      <td>
+        <span class={`chip ${state === 'printing' ? 'ok' : 'warn'}`}>{state}</span>
+      </td>
+      <td class="actions">
+        <button
+          class="quiet"
+          title="Remove this job from the queue"
+          onClick={() => runInTerminal({ action: 'printer-cancel', id: p.id, job: j.id })}
+        >
+          Cancel
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+/** Time of day for today's jobs, date and time for older ones. */
+function formatTime(at: number): string {
+  const d = new Date(at);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
 }
 
 /** "scanned 12 s ago" style label; exact enough for a one-minute refresh cadence. */

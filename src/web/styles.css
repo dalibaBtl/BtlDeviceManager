@@ -205,6 +205,18 @@ table.status td.actions button {
   margin-left: 4px;
 }
 
+table.printers tr.has-jobs td {
+  border-bottom: none;
+}
+table.printers tr.job td {
+  color: var(--fg-dim);
+  padding-top: 0;
+}
+table.printers tr.job td.name {
+  font-weight: 400;
+  padding-left: 24px;
+}
+
 /* status chips */
 .chip {
   font-size: 11px;

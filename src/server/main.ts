@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import http from 'node:http';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -64,6 +64,17 @@ export interface RunningServer {
 
 /** Milliseconds between background rescans; printers wake up and fall asleep on their own, disks fill up. */
 const REFRESH_INTERVAL = 60_000;
+/**
+ * Rescan pause while the printer list is expected to change: a queue has jobs,
+ * or a printer command was just typed. CUPS keeps its job list under
+ * `/var/spool/cups` and `/var/cache/cups`, both unreadable to a plain user, and
+ * rewrites `printers.conf` only after its `DirtyCleanInterval` (30 s by
+ * default), so the `/etc/cups` watcher fires half a minute after `lpadmin`
+ * and never for a job. Polling briefly is the only way the table follows.
+ */
+const FAST_REFRESH_INTERVAL = 5_000;
+/** How long after a typed printer command the fast rescan keeps going: sudo prompt plus CUPS's delay. */
+const SETTLE_MS = 90_000;
 /** Grace period before exiting once the last client is gone. */
 const IDLE_EXIT_MS = 10_000;
 
@@ -181,6 +192,9 @@ class App {
   private readonly vmStatsLive: LiveSource<VmStats[]>;
   private lastPerf: PerfSample | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
+  private fastTimer: NodeJS.Timeout | null = null;
+  /** Epoch milliseconds until which printer rescans stay fast after a typed command. */
+  private settleUntil = 0;
 
   onClientCountChange: (n: number) => void = () => undefined;
 
@@ -192,6 +206,7 @@ class App {
     this.printerSource.onUpdate = (r, error) => {
       this.printers = listing(r, error);
       this.broadcast({ type: 'printers', ...this.printers });
+      this.scheduleFastRefresh();
     };
     this.printerSource.onScanning = (on) => this.setScanning(on);
 
@@ -268,8 +283,27 @@ class App {
     }, REFRESH_INTERVAL);
   }
 
+  /**
+   * Rescans sooner while any queue has unfinished jobs or a printer command
+   * was typed within {@link SETTLE_MS}; one timer, re-armed after each listing.
+   */
+  private scheduleFastRefresh(): void {
+    if (this.fastTimer) clearTimeout(this.fastTimer);
+    this.fastTimer = null;
+    const jobs = this.printers.items.some((p) => (p.queue?.jobs.length ?? 0) > 0);
+    if (!jobs && Date.now() >= this.settleUntil) return;
+    this.fastTimer = setTimeout(() => void this.printerSource.refresh(), FAST_REFRESH_INTERVAL);
+  }
+
+  /** Called when a printer command goes into the terminal; the list will change, but only CUPS knows when. */
+  private expectPrinterChange(): void {
+    this.settleUntil = Date.now() + SETTLE_MS;
+    this.scheduleFastRefresh();
+  }
+
   stop(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
+    if (this.fastTimer) clearTimeout(this.fastTimer);
     this.printerSource.stop();
     this.displaySource.stop();
     this.vmSource.stop();
@@ -475,9 +509,11 @@ class App {
               displays: this.paths.displaysCli,
               vm: this.paths.vmCli,
               layouts: layoutsDir(),
+              user: userInfo().username,
             },
           ),
         );
+        if (msg.run.action.startsWith('printer-')) this.expectPrinterChange();
         break;
     }
   }
@@ -489,6 +525,8 @@ export interface StepContext {
   displays: string;
   vm: string;
   layouts: string;
+  /** Account the server runs as; its own print jobs can be cancelled without root. */
+  user: string;
 }
 
 /** The last listings, which every typed action is checked against. */
@@ -543,6 +581,17 @@ export function buildSteps(run: TerminalAction, known: Known, ctx: StepContext):
     case 'printer-test':
       requireQueue(printer);
       return [`${cli} test ${id}`];
+    case 'printer-cancel': {
+      requireQueue(printer);
+      const jobs = printer.queue?.jobs ?? [];
+      if (run.job === null) return [`sudo ${cli} cancel ${id}`];
+      const job = jobs.find((j) => j.id === run.job);
+      if (!job) throw new Error(`job ${run.job} is no longer waiting; refresh the list`);
+      // One's own job can be cancelled without root; purging a queue or
+      // someone else's job cannot, so only those ask for the sudo password.
+      const prefix = job.user === ctx.user ? '' : 'sudo ';
+      return [`${prefix}${cli} cancel ${id} ${job.id}`];
+    }
   }
 }
 

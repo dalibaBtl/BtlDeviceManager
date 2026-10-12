@@ -17,6 +17,8 @@ const queue = (name: string, uri: string, isDefault = false): PrintQueue => ({
   uri,
   state: 'idle',
   isDefault,
+  reasons: [],
+  jobs: [],
 });
 
 describe('slug', () => {

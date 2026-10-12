@@ -5,7 +5,7 @@
  * `lpadmin`, which needs the `lpadmin` group or root; the CLI is run under
  * `sudo` for those, typed into the terminal by the app so the user sees it.
  */
-import type { PrintQueue, QueueState } from '../shared/types.js';
+import type { PrintJob, PrintQueue, QueueState } from '../shared/types.js';
 
 /** Absolute path: `/usr/sbin` is not on a regular user's PATH on Debian. */
 export const LPADMIN = '/usr/sbin/lpadmin';
@@ -15,19 +15,33 @@ export const DRIVERLESS = '/usr/lib/cups/driver/driverless';
 export const TEST_PAGE = '/usr/share/cups/data/testprint';
 
 /**
- * Parses `lpstat -v` (device URIs), `lpstat -p` (states) and `lpstat -d`
- * (default destination) into queues. All three outputs can be passed as
- * printed with `LC_ALL=C`; queues without a device line are skipped because
- * `lpstat -p` alone cannot tell where they print.
+ * Parses `lpstat -v` (device URIs), `lpstat -l -p` (states and alerts),
+ * `lpstat -d` (default destination) and `lpstat -l -o` (unfinished jobs) into
+ * queues. All outputs are as printed with `LC_ALL=C`; the plain `-p` form is
+ * accepted too, it simply has no `Alerts:` lines. Queues without a device
+ * line are skipped because `lpstat -p` alone cannot tell where they print.
  */
-export function parseLpstat(devices: string, printers: string, defaultDest: string): PrintQueue[] {
+export function parseLpstat(
+  devices: string,
+  printers: string,
+  defaultDest: string,
+  jobs = '',
+): PrintQueue[] {
   const def = /system default destination:\s*(\S+)/.exec(defaultDest)?.[1] ?? null;
   const states = new Map<string, QueueState>();
+  const reasons = new Map<string, string[]>();
+  let current = '';
   for (const line of printers.split('\n')) {
     const m = /^printer (\S+) (?:is|disabled|now)\s*(.*)$/.exec(line.trim());
-    if (!m) continue;
-    states.set(m[1] ?? '', queueState(line));
+    if (m) {
+      current = m[1] ?? '';
+      states.set(current, queueState(line));
+      continue;
+    }
+    const a = /^\s+Alerts:\s*(.*)$/.exec(line);
+    if (a && current) reasons.set(current, parseAlerts(a[1] ?? ''));
   }
+  const byQueue = parseLpstatJobs(jobs);
   const queues: PrintQueue[] = [];
   for (const line of devices.split('\n')) {
     const m = /^device for (\S+): (.+)$/.exec(line.trim());
@@ -38,9 +52,52 @@ export function parseLpstat(devices: string, printers: string, defaultDest: stri
       uri: (m[2] ?? '').trim(),
       state: states.get(name) ?? 'unknown',
       isDefault: name === def,
+      reasons: reasons.get(name) ?? [],
+      jobs: byQueue.get(name) ?? [],
     });
   }
   return queues.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** `Alerts: none` means no reasons; otherwise the reasons are space-separated. */
+function parseAlerts(text: string): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  return words.length === 1 && words[0] === 'none' ? [] : words;
+}
+
+/**
+ * Parses `lpstat -l -o`, grouped by queue. Each job is one header line
+ *
+ *     Office-12    alice    1024   Mon Oct 12 13:04:04 2026
+ *
+ * followed by indented detail lines, of which `Alerts:` carries the job state
+ * reasons. The queue name is everything before the last `-<number>`, since
+ * queue names may themselves contain dashes. Dates are local time in the C
+ * locale, which is how `Date` parses them too.
+ */
+export function parseLpstatJobs(output: string): Map<string, PrintJob[]> {
+  const out = new Map<string, PrintJob[]>();
+  let last: PrintJob | null = null;
+  for (const line of output.split('\n')) {
+    const h = /^(\S+)-(\d+)\s+(\S+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (h) {
+      const at = new Date((h[5] ?? '').trim()).getTime();
+      last = {
+        id: Number(h[2]),
+        user: h[3] ?? '',
+        sizeBytes: Number(h[4]),
+        submittedAt: Number.isNaN(at) ? null : at,
+        reasons: [],
+      };
+      const queue = h[1] ?? '';
+      out.set(queue, [...(out.get(queue) ?? []), last]);
+      continue;
+    }
+    const a = /^\s+Alerts:\s*(.*)$/.exec(line);
+    if (a && last) last.reasons = parseAlerts(a[1] ?? '');
+  }
+  for (const jobs of out.values()) jobs.sort((x, y) => x.id - y.id);
+  return out;
 }
 
 function queueState(line: string): QueueState {
@@ -105,6 +162,15 @@ export function lpadminRemoveArgs(name: string): string[] {
 
 export function lpTestPageArgs(name: string): string[] {
   return ['-d', name, TEST_PAGE];
+}
+
+/**
+ * Arguments for `cancel`: one job by its `<queue>-<id>` request id, or every
+ * job on the queue. `-a` needs root even for the caller's own jobs (it is the
+ * IPP purge-jobs operation), so the app types that form with `sudo`.
+ */
+export function cancelArgs(name: string, job: number | null): string[] {
+  return job === null ? ['-a', name] : [`${name}-${job}`];
 }
 
 /**
