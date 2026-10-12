@@ -298,3 +298,61 @@ describe('StatusPanel', () => {
     expect(render(<StatusPanel />)).toContain('All services are running');
   });
 });
+
+describe('live performance', () => {
+  it('renders the Performance card from a sample with the profile select', async () => {
+    const state = await import('../src/web/state.js');
+    const { PerformancePanel } = await import('../src/web/components/PerformancePanel.jsx');
+    state.perf.value = {
+      at: 0,
+      cpuPercent: 42,
+      cores: [100, 0],
+      load1: 1.5,
+      load5: 1,
+      memory: { totalMiB: 32768, usedMiB: 8192, availableMiB: 24576, swapUsedMiB: 0 },
+      temperature: { celsius: 55, sensor: 'acpitz' },
+      processes: [{ pid: 7, name: 'chrome', cpuPercent: 30, rssMiB: 500 }],
+      powerProfile: { active: 'balanced', available: ['performance', 'balanced'] },
+      clock: { currentMHz: [4600, 600], minMHz: 600, maxMHz: 4700, boost: true },
+      policy: {
+        governor: 'powersave',
+        energyPreference: 'balance_performance',
+        platformProfile: 'balanced',
+        onAc: true,
+      },
+    };
+    const html = render(<PerformancePanel />);
+    expect(html).toContain('42 %');
+    expect(html).toContain('55 °C (acpitz)');
+    expect(html).toContain('<option selected value="balanced"');
+    expect(html).toContain('chrome');
+    expect(html).toContain('2.6 GHz now (0.6–4.7), boost on');
+    expect(html).toContain('platform profile balanced · EPP balance_performance');
+    state.perf.value = { ...state.perf.value, powerProfile: null };
+    expect(render(<PerformancePanel />)).toContain('power-profiles-daemon is not installed');
+  });
+
+  it('shows per-vCPU load for a running guest', async () => {
+    const state = await import('../src/web/state.js');
+    const { VmPanel } = await import('../src/web/components/VmPanel.jsx');
+    state.vmsError.value = null;
+    state.vms.value = [
+      {
+        name: 'up',
+        id: 2,
+        state: 'running',
+        cpus: 4,
+        memoryMiB: 16384,
+        autostart: false,
+        persistent: true,
+        consoleWorkspace: null,
+      },
+    ];
+    state.vmStats.value = new Map([
+      ['up', { name: 'up', vcpus: [100, 99, 0, 0], cpuPercent: 199, rssMiB: 16602, maxMiB: 16384 }],
+    ]);
+    const html = render(<VmPanel />);
+    expect(html).toContain('2 of 4 vCPU busy');
+    expect(html).toContain('vCPU 2: 0 %');
+  });
+});

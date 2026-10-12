@@ -6,6 +6,7 @@ import { Nav } from './components/Nav.jsx';
 import { DisplaysPanel } from './components/DisplaysPanel.jsx';
 import { PrintersPanel } from './components/PrintersPanel.jsx';
 import { TerminalPane } from './components/TerminalPane.jsx';
+import { PerformancePanel } from './components/PerformancePanel.jsx';
 import { StatusPanel } from './components/StatusPanel.jsx';
 import { VmPanel } from './components/VmPanel.jsx';
 import { applyServerMessage, notices, selectedPanel } from './state.js';
@@ -88,6 +89,7 @@ function App() {
         {selectedPanel.value === 'displays' && <DisplaysPanel />}
         {selectedPanel.value === 'vm' && <VmPanel />}
         {selectedPanel.value === 'status' && <StatusPanel />}
+        {selectedPanel.value === 'performance' && <PerformancePanel />}
         <Splitter axis="y" onMove={(d) => setTerm(Math.max(MIN_TERM, term - d))} />
         <TerminalPane />
       </div>

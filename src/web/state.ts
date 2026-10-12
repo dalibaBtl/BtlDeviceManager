@@ -1,12 +1,15 @@
 import { signal } from '@preact/signals';
 import type {
   DisplayOutput,
+  PerfSample,
   Printer,
   ServerMessage,
   SystemStatus,
   TerminalAction,
   VirtualMachine,
   VmSettings,
+  VmStats,
+  WatchTopic,
 } from '../shared/types.js';
 import { api, socket } from './api.js';
 
@@ -16,12 +19,13 @@ import { api, socket } from './api.js';
  */
 
 /** The panels in the left navigation; one per feature, in the order they appear. */
-export type Panel = 'printers' | 'displays' | 'vm' | 'status';
+export type Panel = 'printers' | 'displays' | 'vm' | 'status' | 'performance';
 export const PANELS: { id: Panel; label: string }[] = [
   { id: 'printers', label: 'Printers' },
   { id: 'displays', label: 'Displays' },
   { id: 'vm', label: 'Virtual machine' },
   { id: 'status', label: 'Status' },
+  { id: 'performance', label: 'Performance' },
 ];
 export const selectedPanel = signal<Panel>('printers');
 
@@ -43,6 +47,33 @@ export const vmSettings = signal<VmSettings>({ workspaces: [] });
 
 export const status = signal<SystemStatus | null>(null);
 export const statusError = signal<string | null>(null);
+
+/** Latest live sample while the Status panel is open; `null` before the first arrives. */
+export const perf = signal<PerfSample | null>(null);
+/** Latest per-guest stats while the Virtual machine panel is open, keyed by domain name. */
+export const vmStats = signal<Map<string, VmStats>>(new Map());
+
+const watchCounts = new Map<WatchTopic, number>();
+
+/**
+ * Asks the server for a live feed while a component is mounted. Counted per
+ * topic so two components may share one subscription, and resent after a
+ * reconnect, since the server forgets watchers with the connection.
+ */
+export function watchLive(topic: WatchTopic, on: boolean): void {
+  const n = Math.max(0, (watchCounts.get(topic) ?? 0) + (on ? 1 : -1));
+  watchCounts.set(topic, n);
+  if ((on && n === 1) || (!on && n === 0)) socket.send({ type: 'watch', topic, on });
+}
+
+socket.onOpen(() => {
+  for (const [topic, n] of watchCounts) if (n > 0) socket.send({ type: 'watch', topic, on: true });
+});
+
+/** Switches the power profile; the next live sample shows the result. */
+export function setPowerProfile(profile: string): Promise<void> {
+  return guard(() => api.post('/api/status/profile', { profile })).then(() => undefined);
+}
 
 export interface Notice {
   id: number;
@@ -117,6 +148,12 @@ export function applyServerMessage(msg: ServerMessage): void {
     case 'status':
       status.value = msg.status;
       statusError.value = msg.error;
+      break;
+    case 'perf':
+      perf.value = msg.sample;
+      break;
+    case 'vm-stats':
+      vmStats.value = new Map(msg.items.map((s) => [s.name, s]));
       break;
     case 'notice':
       notify(msg.level, msg.text);

@@ -171,7 +171,7 @@ function StatusBody({ s }: { s: SystemStatus }) {
   );
 }
 
-function Card({ title, children }: { title: string; children: preact.ComponentChildren }) {
+export function Card({ title, children }: { title: string; children: preact.ComponentChildren }) {
   return (
     <div class="card">
       <h3>{title}</h3>
@@ -180,7 +180,7 @@ function Card({ title, children }: { title: string; children: preact.ComponentCh
   );
 }
 
-function Row({ k, v, warn }: { k: string; v: string; warn?: boolean }) {
+export function Row({ k, v, warn }: { k: string; v: string; warn?: boolean }) {
   return (
     <div class={`kv${warn ? ' warn' : ''}`}>
       <span class="k">{k}</span>

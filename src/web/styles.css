@@ -469,3 +469,46 @@ table.status tr.warn td {
 tr.warn .bar div {
   background: var(--warn);
 }
+
+/* live bars */
+.bar.inline {
+  display: inline-block;
+  vertical-align: middle;
+  width: 80px;
+  height: 8px;
+  margin-right: 6px;
+}
+.bar.inline.wide {
+  width: 140px;
+}
+.bar.inline.small {
+  width: 10px;
+  height: 14px;
+  margin-right: 2px;
+  position: relative;
+}
+.bar.inline.small span {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+}
+.bar.inline span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.bar.inline.hot span {
+  background: var(--warn);
+}
+.cores {
+  display: inline-flex;
+  gap: 1px;
+  margin-left: 10px;
+  vertical-align: middle;
+}
+table.status.procs td {
+  padding: 2px 8px;
+  font-size: 12px;
+}

@@ -1,4 +1,5 @@
-import type { VirtualMachine } from '../../shared/types.js';
+import { useEffect } from 'preact/hooks';
+import type { VirtualMachine, VmStats } from '../../shared/types.js';
 import { isDown, isUp } from '../../vm/virsh.js';
 import { api } from '../api.js';
 import {
@@ -6,10 +7,13 @@ import {
   refreshVms,
   runInTerminal,
   vmSettings,
+  vmStats,
   vms,
   vmsError,
   vmsScannedAt,
+  watchLive,
 } from '../state.js';
+import { Bar } from './PerformancePanel.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { scannedLabel } from './PrintersPanel.jsx';
 
@@ -23,6 +27,10 @@ import { scannedLabel } from './PrintersPanel.jsx';
 export function VmPanel() {
   const items = vms.value;
   const error = vmsError.value;
+  useEffect(() => {
+    watchLive('vm-stats', true);
+    return () => watchLive('vm-stats', false);
+  }, []);
   return (
     <section class="pane panel">
       <header>
@@ -52,6 +60,7 @@ export function VmPanel() {
                 <th>State</th>
                 <th>CPUs</th>
                 <th>Memory</th>
+                <th>Load</th>
                 <th>Console on</th>
                 <th />
               </tr>
@@ -117,6 +126,9 @@ function VmRow({ vm }: { vm: VirtualMachine }) {
       <td>{vm.cpus ?? '–'}</td>
       <td>{vm.memoryMiB !== null ? formatMemory(vm.memoryMiB) : '–'}</td>
       <td>
+        <Load stats={vmStats.value.get(vm.name) ?? null} up={isUp(vm)} />
+      </td>
+      <td>
         <select
           class="mode"
           title="Workspace this machine's console window is moved to"
@@ -163,6 +175,32 @@ function VmRow({ vm }: { vm: VirtualMachine }) {
         )}
       </td>
     </tr>
+  );
+}
+
+/**
+ * Live CPU per vCPU and host memory of a running guest. Two of four bars
+ * flat while the others are full is the picture of a topology Windows will
+ * not use, which is why the bars are per vCPU and not one number.
+ */
+function Load({ stats, up }: { stats: VmStats | null; up: boolean }) {
+  if (!up) return <span class="meta">–</span>;
+  if (!stats) return <span class="meta">sampling…</span>;
+  const busy = stats.vcpus.filter((v) => v >= 50).length;
+  return (
+    <span title={`${stats.vcpus.map((v, i) => `vCPU ${i}: ${v} %`).join(', ')}`}>
+      <span class="cores">
+        {stats.vcpus.map((v, i) => (
+          <Bar key={i} percent={v} small />
+        ))}
+      </span>{' '}
+      {busy} of {stats.vcpus.length} vCPU busy
+      {stats.rssMiB !== null && (
+        <span class="meta">
+          , {formatMemory(stats.rssMiB)} of {formatMemory(stats.maxMiB)}
+        </span>
+      )}
+    </span>
   );
 }
 
