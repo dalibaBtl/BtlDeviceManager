@@ -6,6 +6,7 @@ import type {
   ServerMessage,
   SystemStatus,
   TerminalAction,
+  UpdateState,
   VirtualMachine,
   VmSettings,
   VmStats,
@@ -119,6 +120,23 @@ export function refreshStatus(): Promise<void> {
 }
 
 /** Sends an action to be typed into this window's terminal. */
+/** Where this installation stands against the repository; `null` until the first check. */
+export const update = signal<UpdateState | null>(null);
+/** A newer build is on disk than the one the server runs; a restart picks it up. */
+export const updateBuilt = signal(false);
+
+export function checkForUpdate(): Promise<void> {
+  return guard(() => api.post('/api/update/check')).then(() => undefined);
+}
+
+/**
+ * Asks the server to replace itself with the new build. The socket drops and
+ * reconnects on its own; the terminal pane opens a fresh shell when it does.
+ */
+export function restartApp(): Promise<void> {
+  return guard(() => api.post('/api/restart')).then(() => undefined);
+}
+
 export function runInTerminal(run: TerminalAction): void {
   socket.send({ type: 'term-run', run });
 }
@@ -154,6 +172,10 @@ export function applyServerMessage(msg: ServerMessage): void {
       break;
     case 'vm-stats':
       vmStats.value = new Map(msg.items.map((s) => [s.name, s]));
+      break;
+    case 'update':
+      update.value = msg.state;
+      updateBuilt.value = msg.built;
       break;
     case 'notice':
       notify(msg.level, msg.text);

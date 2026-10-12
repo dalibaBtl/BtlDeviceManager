@@ -9,13 +9,20 @@
 //   --foreground   run the server in this process (logs to the terminal); used by the
 //                  background child, handy for debugging
 //   --port <n>     fixed port (default: a free one)
+//   --reuse        internal: started by a running server to replace itself; no window,
+//                  token taken from $BTLDM_TOKEN
+//
+// Subcommands:
+//   update [--check] [--json]   bring this clone to origin/main and rebuild; --check only reports
 import { spawn } from 'node:child_process';
 import { mkdirSync, openSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const { startServer, cacheDir } = await import(path.join(here, '..', 'dist', 'server.js'));
+const { startServer, cacheDir, printCheck, runUpdate, repoRoot } = await import(
+  path.join(here, '..', 'dist', 'server.js')
+);
 const { ensureDesktopEntry } = await import(
   path.join(here, '..', 'scripts', 'install-desktop.mjs')
 );
@@ -27,8 +34,14 @@ const value = (name) => {
   return i >= 0 ? args[i + 1] : undefined;
 };
 const port = Number(value('--port') ?? 0);
+// Read and drop at once: the terminal's shell inherits this environment.
+const reusedToken = process.env.BTLDM_TOKEN;
+delete process.env.BTLDM_TOKEN;
 
-if (flag('--foreground')) {
+if (args[0] === 'update') {
+  const root = repoRoot();
+  process.exit(flag('--check') ? await printCheck(root, flag('--json')) : await runUpdate(root));
+} else if (flag('--foreground')) {
   await runServer();
 } else {
   // Self-service: the first start registers the app with the launcher (Mod+D),
@@ -44,9 +57,10 @@ async function runServer() {
     port,
     keepAlive: flag('--keep-alive') || flag('--no-open'),
     webDir: path.join(here, '..', 'dist', 'web'),
+    token: flag('--reuse') ? reusedToken : undefined,
   });
   console.log(server.url);
-  if (!flag('--no-open')) openAppWindow(server.url);
+  if (!flag('--no-open') && !flag('--reuse')) openAppWindow(server.url);
 }
 
 /**

@@ -7,7 +7,8 @@ import {
   formatMiB,
   summaryText,
 } from '../../status/summary.js';
-import { notify, refreshStatus, runInTerminal, status, statusError } from '../state.js';
+import { notify, refreshStatus, runInTerminal, status, statusError, update } from '../state.js';
+import { describeUpdate } from '../../update/update.js';
 import { scannedLabel } from './PrintersPanel.jsx';
 
 /**
@@ -23,7 +24,8 @@ export function StatusPanel() {
   const copy = async () => {
     if (!s) return;
     try {
-      await navigator.clipboard.writeText(summaryText(s));
+      const app = update.value ? `\nBTL Device Manager ${describeUpdate(update.value)}\n` : '';
+      await navigator.clipboard.writeText(summaryText(s) + app);
       notify('info', 'Summary copied');
     } catch (e) {
       notify('error', `Could not copy: ${e instanceof Error ? e.message : String(e)}`);
@@ -65,6 +67,13 @@ function StatusBody({ s }: { s: SystemStatus }) {
       <Card title="This machine">
         <Row k="Name" v={s.host.name} />
         <Row k="System" v={`${s.host.os}, kernel ${s.host.kernel}`} />
+        {update.value && (
+          <Row
+            k="BTL Device Manager"
+            v={describeUpdate(update.value)}
+            warn={update.value.behind > 0 && update.value.blocked === null}
+          />
+        )}
         <Row k="Up for" v={formatDuration(s.host.uptimeSeconds)} />
         <Row
           k="Time"

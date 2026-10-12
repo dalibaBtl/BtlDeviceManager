@@ -16,11 +16,23 @@ export function cacheDir(): string {
 
 /** Where the `desktop` role in btl-infra links the CLI so that `sudo` finds it. */
 export const SYSTEM_CLI_LINK = '/usr/local/bin/btl-printers';
+/** Where the role links the launcher, so `btl-device-manager update` works from any shell. */
+export const SYSTEM_APP_LINK = '/usr/local/bin/btl-device-manager';
+
+/** Root of this clone, resolved from the built server bundle in `dist/`. */
+export function repoRoot(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, '..');
+}
 
 /** Absolute path of `cli/btl-printers.js` in this clone, resolved from the built server bundle. */
 export function printersCliPath(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, '..', 'cli', 'btl-printers.js');
+  return path.join(repoRoot(), 'cli', 'btl-printers.js');
+}
+
+/** Absolute path of the launcher, `cli/btl-device-manager.js`. */
+export function appCliPath(): string {
+  return path.join(repoRoot(), 'cli', 'btl-device-manager.js');
 }
 
 /**
@@ -33,8 +45,25 @@ export function printersCommand(
   cliPath: string = printersCliPath(),
   resolveLink: (p: string) => string | null = realpathOrNull,
 ): string {
-  const target = resolveLink(SYSTEM_CLI_LINK);
-  return target !== null && target === resolveLink(cliPath) ? 'btl-printers' : cliPath;
+  return linkedCommand(SYSTEM_CLI_LINK, 'btl-printers', cliPath, resolveLink);
+}
+
+/** The same rule for the launcher: `btl-device-manager` when linked, else the script path. */
+export function appCommand(
+  cliPath: string = appCliPath(),
+  resolveLink: (p: string) => string | null = realpathOrNull,
+): string {
+  return linkedCommand(SYSTEM_APP_LINK, 'btl-device-manager', cliPath, resolveLink);
+}
+
+function linkedCommand(
+  link: string,
+  name: string,
+  cliPath: string,
+  resolveLink: (p: string) => string | null,
+): string {
+  const target = resolveLink(link);
+  return target !== null && target === resolveLink(cliPath) ? name : cliPath;
 }
 
 function realpathOrNull(p: string): string | null {

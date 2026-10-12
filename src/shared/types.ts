@@ -69,6 +69,34 @@ export interface PrinterList {
   scannedAt: number;
 }
 
+// ---- self-update -------------------------------------------------------------
+
+/**
+ * Why the clone must not be updated in place: `dirty` has local changes
+ * (a development checkout), `detached` is not on a branch that tracks
+ * `origin`, `offline` could not reach the remote (the counts are then from
+ * the last successful fetch).
+ */
+export type UpdateBlocker = 'dirty' | 'detached' | 'offline';
+
+/** Where this installation stands against `origin/main`, from `btl-device-manager update --check`. */
+export interface UpdateState {
+  /** `version` from package.json of the running clone. */
+  version: string;
+  /** Short hash of the checked-out commit. */
+  commit: string;
+  branch: string | null;
+  /** Commits on `origin/main` that this clone does not have. */
+  behind: number;
+  /** Subjects of those commits, newest first, at most {@link UPDATE_SUBJECTS_SHOWN}. */
+  subjects: string[];
+  blocked: UpdateBlocker | null;
+  /** Epoch milliseconds of the check. */
+  checkedAt: number;
+}
+
+export const UPDATE_SUBJECTS_SHOWN = 20;
+
 /** Messages pushed from server to client over the WebSocket. */
 export type ServerMessage =
   | { type: 'printers'; items: Printer[]; scannedAt: number | null; error: string | null }
@@ -84,6 +112,7 @@ export type ServerMessage =
   | { type: 'status'; status: SystemStatus | null; error: string | null }
   | { type: 'perf'; sample: PerfSample }
   | { type: 'vm-stats'; items: VmStats[] }
+  | { type: 'update'; state: UpdateState | null; built: boolean }
   | { type: 'term-data'; data: string }
   | { type: 'term-exit'; code: number }
   | { type: 'notice'; level: 'info' | 'error'; text: string };
@@ -104,7 +133,8 @@ export type TerminalAction =
   | { action: 'vm-shutdown'; name: string }
   | { action: 'vm-poweroff'; name: string }
   | { action: 'vm-console'; name: string }
-  | { action: 'status-log'; unit: string; scope: UnitScope };
+  | { action: 'status-log'; unit: string; scope: UnitScope }
+  | { action: 'app-update' };
 
 /** Messages sent from client to server over the WebSocket. */
 export type ClientMessage =

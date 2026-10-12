@@ -22,6 +22,44 @@ async function load() {
   return { state, ...panel };
 }
 
+describe('UpdateFooter', () => {
+  const base = {
+    version: '0.1.0',
+    commit: 'abc1234',
+    branch: 'main',
+    behind: 0,
+    subjects: [],
+    blocked: null,
+    checkedAt: 0,
+  };
+
+  it('shows the version when up to date and Update when behind', async () => {
+    const { state } = await load();
+    const { UpdateFooter } = await import('../src/web/components/Nav.jsx');
+    state.update.value = base;
+    expect(render(<UpdateFooter />)).toContain('0.1.0 · abc1234');
+    expect(render(<UpdateFooter />)).not.toContain('Update');
+    state.update.value = { ...base, behind: 2, subjects: ['Second', 'First'] };
+    const html = render(<UpdateFooter />);
+    expect(html).toContain('Update available (2)');
+    expect(html).toContain('>Update<');
+    expect(html).toContain('Second');
+  });
+
+  it('never offers Update on a dirty clone, and Restart once a build landed', async () => {
+    const { state } = await load();
+    const { UpdateFooter } = await import('../src/web/components/Nav.jsx');
+    state.update.value = { ...base, behind: 2, blocked: 'dirty' };
+    const html = render(<UpdateFooter />);
+    expect(html).toContain('local changes');
+    expect(html).not.toContain('>Update<');
+    state.updateBuilt.value = true;
+    expect(render(<UpdateFooter />)).toContain('Restart');
+    state.updateBuilt.value = false;
+    state.update.value = null;
+  });
+});
+
 const found: Printer = {
   id: 'Example_L1234_Series',
   name: 'Example L1234 Series',

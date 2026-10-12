@@ -177,6 +177,26 @@ export function watchCups(onChange: () => void): () => void {
 }
 
 /**
+ * Watches the built server bundle. `npm run build` (by hand or through
+ * `btl-device-manager update`) replaces `dist/server.js` while the old code
+ * keeps running; the server tells its windows a restart is worth it instead
+ * of restarting on its own, because a restart ends the terminal's shell.
+ */
+export function watchDist(distDir: string, onChange: () => void): () => void {
+  return debounced(2000, onChange, (fire) => {
+    try {
+      const w = fsWatch(distDir, { persistent: false }, (_event, file) => {
+        if (!file || /^server\.js$/.test(String(file))) fire();
+      });
+      w.on('error', () => undefined);
+      return () => w.close();
+    } catch {
+      return () => undefined;
+    }
+  });
+}
+
+/**
  * Follows sway's output events (`swaymsg -t subscribe '["output"]' -m`), one
  * JSON object per line, so a plugged or unplugged monitor redraws the panel
  * without a Refresh click. The stream is restarted when sway closes it

@@ -38,6 +38,7 @@ const ctx = (printers: string) => ({
   vm: '/x/cli/btl-vm.js',
   layouts: '/tmp/none',
   user: 'alice',
+  app: '/x/cli/btl-device-manager.js',
 });
 
 describe('buildSteps', () => {
@@ -70,6 +71,12 @@ describe('buildSteps', () => {
     expect(() =>
       buildSteps({ action: 'printer-cancel', id: discovered.id, job: null }, known, c),
     ).toThrow(/no queue/);
+  });
+
+  it('updates the app through the launcher, without sudo and without an id', () => {
+    expect(buildSteps({ action: 'app-update' }, known, ctx('x'))).toEqual([
+      '/x/cli/btl-device-manager.js update',
+    ]);
   });
 
   it('prints the test page without sudo', () => {

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { createReadStream, existsSync, mkdirSync, openSync, statSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir, userInfo } from 'node:os';
@@ -17,11 +18,13 @@ import type {
   ServerMessage,
   SystemStatus,
   TerminalAction,
+  UpdateState,
   VirtualMachine,
   VmSettings,
   VmStats,
   WatchTopic,
 } from '../shared/types.js';
+import { checkUpdate, printCheck, runUpdate } from '../update/cli.js';
 import { isDown, isUp } from '../vm/virsh.js';
 import {
   CliSource,
@@ -30,20 +33,26 @@ import {
   parseStatus,
   runCli,
   watchCups,
+  watchDist,
   watchNetwork,
   watchSwayOutputs,
   watchVirshEvents,
   type ListResult,
 } from './cli-source.js';
 import {
+  appCommand,
   cacheDir,
   displaysCliPath,
   layoutsDir,
   printersCliPath,
   printersCommand,
+  repoRoot,
   statusCliPath,
   vmCliPath,
 } from './paths.js';
+
+/** The launcher's `update` subcommand lives in this bundle too; one build, one import. */
+export { checkUpdate, printCheck, runUpdate, repoRoot };
 import { Terminal, shellQuote } from './terminal.js';
 
 /** Options accepted by {@link startServer}. */
@@ -54,6 +63,12 @@ export interface ServerOptions {
   keepAlive: boolean;
   /** Directory of the built front-end (`index.html`, `main.js`, `main.css`). */
   webDir: string;
+  /**
+   * Token to accept instead of a fresh random one. Only an in-place restart
+   * passes it (through the environment, never argv), so the windows that hold
+   * the old URL reconnect to the new process.
+   */
+  token?: string;
 }
 
 /** What a started server exposes to the launcher. */
@@ -64,6 +79,8 @@ export interface RunningServer {
 
 /** Milliseconds between background rescans; printers wake up and fall asleep on their own, disks fill up. */
 const REFRESH_INTERVAL = 60_000;
+/** How often the clone is compared with `origin/main`; a fetch per hour is cheap and the check is also on demand. */
+const UPDATE_CHECK_INTERVAL = 3_600_000;
 /**
  * Rescan pause while the printer list is expected to change: a queue has jobs,
  * or a printer command was just typed. CUPS keeps its job list under
@@ -87,13 +104,15 @@ const IDLE_EXIT_MS = 10_000;
  * local IDE. State lives in memory and is replayed to each new client.
  */
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
-  const token = randomBytes(24).toString('base64url');
+  const token = opts.token ?? randomBytes(24).toString('base64url');
   const app = new App({
     printersCli: printersCliPath(),
     printersCommand: printersCommand(),
     displaysCli: displaysCliPath(),
     vmCli: vmCliPath(),
     statusCli: statusCliPath(),
+    appCommand: appCommand(),
+    root: repoRoot(),
   });
   const server = http.createServer((req, res) => {
     handleHttp(app, token, opts.webDir, req, res).catch((e: unknown) => {
@@ -119,18 +138,71 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (n === 0) idleTimer = setTimeout(() => process.exit(0), IDLE_EXIT_MS);
   };
 
-  await new Promise<void>((resolve) => server.listen(opts.port, '127.0.0.1', resolve));
+  await listen(server, opts.port);
   const addr = server.address();
   const port = typeof addr === 'object' && addr ? addr.port : opts.port;
-  app.start();
-  return {
-    url: `http://127.0.0.1:${port}/?t=${token}`,
-    close: () => {
-      app.stop();
-      wss.close();
-      server.close();
-    },
+  const close = () => {
+    app.stop();
+    wss.close();
+    server.close();
+    server.closeAllConnections();
   };
+  app.onRestart = () => {
+    close();
+    restartInPlace(port, token, opts.keepAlive);
+  };
+  app.start();
+  return { url: `http://127.0.0.1:${port}/?t=${token}`, close };
+}
+
+/**
+ * Binds the port. A fixed port is retried for a few seconds: after an in-place
+ * restart the previous process may still be letting go of it.
+ */
+async function listen(server: http.Server, port: number): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', () => {
+          server.off('error', reject);
+          resolve();
+        });
+      });
+      return;
+    } catch (e) {
+      const busy = (e as NodeJS.ErrnoException).code === 'EADDRINUSE';
+      if (!busy || port === 0 || attempt >= 25) throw e;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+}
+
+/**
+ * Starts a fresh server process on the same port with the same token and
+ * exits this one. The launcher is re-run as it was started (`process.argv`),
+ * with `--reuse` so it neither opens another window nor invents a token; the
+ * token travels in the environment, which the launcher clears before anything
+ * else (the terminal's shell) inherits it. The process's initial environment
+ * stays readable to the same user in `/proc`, as is the URL in `server.log`;
+ * other users see neither. The windows keep their URL and reconnect on their
+ * own; their terminals start a new shell.
+ */
+function restartInPlace(port: number, token: string, keepAlive: boolean): void {
+  const [script, ...rest] = process.argv.slice(1);
+  if (!script) throw new Error('cannot restart: launcher path unknown');
+  const args = rest.filter((a, i, all) => a !== '--port' && all[i - 1] !== '--port');
+  if (!args.includes('--reuse')) args.push('--reuse');
+  if (keepAlive && !args.includes('--keep-alive')) args.push('--keep-alive');
+  mkdirSync(cacheDir(), { recursive: true });
+  const log = openSync(path.join(cacheDir(), 'server.log'), 'a');
+  const child = spawn(process.execPath, [script, ...args, '--port', String(port)], {
+    detached: true,
+    stdio: ['ignore', log, log],
+    env: { ...process.env, BTLDM_TOKEN: token },
+  });
+  child.unref();
+  setTimeout(() => process.exit(0), 200);
 }
 
 /** Per-connection state. */
@@ -156,6 +228,10 @@ interface AppPaths {
   displaysCli: string;
   vmCli: string;
   statusCli: string;
+  /** `btl-device-manager` or the launcher's absolute path; see {@link appCommand}. */
+  appCommand: string;
+  /** The clone the server runs from; what `update` works on and whose `dist/` is watched. */
+  root: string;
 }
 
 /** Snapshot of the status read as pushed to clients. */
@@ -192,6 +268,13 @@ class App {
   private readonly vmStatsLive: LiveSource<VmStats[]>;
   private lastPerf: PerfSample | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
+  private updateTimer: NodeJS.Timeout | null = null;
+  private stopDistWatch: (() => void) | null = null;
+  private update: UpdateState | null = null;
+  /** `dist/server.js` changed since this process loaded it. */
+  private built = false;
+  /** Set by {@link startServer}; restarts this process in place. */
+  onRestart: () => void = () => undefined;
   private fastTimer: NodeJS.Timeout | null = null;
   /** Epoch milliseconds until which printer rescans stay fast after a typed command. */
   private settleUntil = 0;
@@ -281,6 +364,22 @@ class App {
       void this.printerSource.refresh();
       void this.statusSource.refresh();
     }, REFRESH_INTERVAL);
+    void this.checkForUpdate();
+    this.updateTimer = setInterval(() => void this.checkForUpdate(), UPDATE_CHECK_INTERVAL);
+    this.stopDistWatch = watchDist(path.join(this.paths.root, 'dist'), () => {
+      this.built = true;
+      this.broadcast(this.updateSnapshot());
+    });
+  }
+
+  /** Compares the clone with `origin/main` and tells every window; failures leave the last state. */
+  async checkForUpdate(): Promise<void> {
+    this.update = await checkUpdate(this.paths.root);
+    this.broadcast(this.updateSnapshot());
+  }
+
+  updateSnapshot(): Extract<ServerMessage, { type: 'update' }> {
+    return { type: 'update', state: this.update, built: this.built };
   }
 
   /**
@@ -304,6 +403,8 @@ class App {
   stop(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.fastTimer) clearTimeout(this.fastTimer);
+    if (this.updateTimer) clearInterval(this.updateTimer);
+    this.stopDistWatch?.();
     this.printerSource.stop();
     this.displaySource.stop();
     this.vmSource.stop();
@@ -423,6 +524,7 @@ class App {
     this.send(client, { type: 'vms', ...this.vms });
     this.send(client, { type: 'status', ...this.status });
     this.send(client, { type: 'scanning', scanning: this.scanning });
+    this.send(client, this.updateSnapshot());
 
     ws.on('message', (raw) => {
       let msg: ClientMessage;
@@ -510,6 +612,7 @@ class App {
               vm: this.paths.vmCli,
               layouts: layoutsDir(),
               user: userInfo().username,
+              app: this.paths.appCommand,
             },
           ),
         );
@@ -527,6 +630,8 @@ export interface StepContext {
   layouts: string;
   /** Account the server runs as; its own print jobs can be cancelled without root. */
   user: string;
+  /** How the launcher is spelled in the terminal, for `update`. */
+  app: string;
 }
 
 /** The last listings, which every typed action is checked against. */
@@ -555,6 +660,7 @@ export function buildSteps(run: TerminalAction, known: Known, ctx: StepContext):
     }
     return [`${ctx.displays} apply ${shellQuote(file)}`];
   }
+  if (run.action === 'app-update') return [`${ctx.app} update`];
   if (run.action === 'status-log') {
     const unit = known.failedUnits.find((u) => u.unit === run.unit && u.scope === run.scope);
     if (!unit) throw new Error('unknown unit; refresh the status and try again');
@@ -721,6 +827,18 @@ async function handleHttp(
       sendJson(res, 200, app.vmsSnapshot());
       return;
     }
+    case 'GET /api/update':
+      sendJson(res, 200, app.updateSnapshot());
+      return;
+    case 'POST /api/update/check':
+      await app.checkForUpdate();
+      sendJson(res, 200, app.updateSnapshot());
+      return;
+    case 'POST /api/restart':
+      sendJson(res, 200, { ok: true });
+      // Answer first: the socket is gone the moment the listener closes.
+      setTimeout(() => app.onRestart(), 100);
+      return;
     default:
       sendJson(res, 404, { error: 'not found' });
   }
