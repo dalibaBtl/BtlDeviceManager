@@ -104,8 +104,8 @@ there. Do not install packages from the app.
 
 ## State of the repository
 
-Done: the skeleton and all four panels from `docs/IDEA.md`: `Printers`,
-`Displays`, `Virtual machine` and `Status`.
+Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
+`Displays`, `Virtual machine`, `Status`) and a live `Performance` panel.
 `docs/adr/0001` says where and why it diverges from bgcm.
 
 - `src/printers/` is the `btl-printers` CLI (`cli/btl-printers.js` loads the
@@ -138,13 +138,21 @@ Done: the skeleton and all four panels from `docs/IDEA.md`: `Printers`,
   the text the CLI prints and the panel copies, `cli.ts` reads every source
   in parallel and lets each one fail alone. The run log
   (`/var/log/btl/ansible-runs.jsonl`, JSONL, read from the tail) is written
-  by btl-infra's `base` role; format in README.
+  by btl-infra's `base` role; format in README. `perf.ts` is the pure part
+  of `btl-status perf` (two readings of `/proc/stat` and `/proc/[pid]/stat`
+  one second apart, hwmon, `powerprofilesctl`); `set-profile` is the one
+  direct status action, through power-profiles-daemon, never sysfs + sudo.
+  `src/vm/stats.ts` does the same for `virsh domstats` (`btl-vm stats`).
 - `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
   for each feature (`CliSource<R>` is generic over the parsed result: lists
   for three panels, one object for status) and holds the watchers
-  (`/etc/cups`, `swaymsg -t subscribe`, `virsh event --loop`, `nmcli monitor`). `buildSteps` validates a printer id or a
-  machine name against the last listing, or a layout file against the
-  server's own directory, and returns the line typed into the terminal.
+  (`/etc/cups`, `swaymsg -t subscribe`, `virsh event --loop`, `nmcli monitor`).
+  `LiveSource` is the other kind of feed: it loops a CLI only while a window
+  has sent `watch {topic, on}`, for the Performance panel and the per-vCPU
+  load; a sample costs a second, so nothing samples unwatched. `buildSteps`
+  validates a printer id or a machine name against the last listing, or a
+  layout file against the server's own directory, and returns the line typed
+  into the terminal.
   `paths.ts#printersCommand` decides between `btl-printers` (when
   `/usr/local/bin/btl-printers` links to this clone) and the absolute path.
 - `src/web/`: `Nav.tsx` lists `PANELS` from `state.ts`; add a panel by adding

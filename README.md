@@ -173,7 +173,11 @@ btl-vm console-workspace win11 "5: vm"     # or --none
 ```
 
 The panel follows `virsh event --all --loop`, so a guest started or stopped
-elsewhere shows up without Refresh.
+elsewhere shows up without Refresh. While it is open, a running guest shows
+its load live: one bar per vCPU and the host memory it occupies, from two
+`virsh domstats` readings a second apart (`btl-vm stats`). Two flat bars
+next to two full ones is a guest that will not use all its vCPUs, which on
+Windows means a socket count above what the edition allows.
 
 ## Status
 
@@ -211,6 +215,30 @@ machine itself. The panel shows the latest run and a short history; it
 answers "when did a playbook last touch this machine", not what changed,
 since the task runs before the play's final statistics exist. Without the
 file the panel says "no record on this machine".
+
+## Performance
+
+Live while the panel is open, like a task manager: CPU over all cores and
+per core, clock per core against the hardware range, load, memory,
+temperature (the CPU sensor when the kernel exposes one, else the ACPI zone,
+with the sensor named), the five busiest processes, and the power profile.
+Each sample is one `btl-status perf` run, a one-second window on the
+kernel's counters, so the numbers are what is happening now and not averages
+since boot. The server samples only while a window watches.
+
+The power profile select goes through `power-profiles-daemon`
+(`btl-status set-profile <name>`): polkit lets the user at the keyboard
+switch without root and the daemon remembers the choice. _In effect_ shows
+what the profile actually set: the ACPI platform profile (firmware power and
+thermal limits, fan curve), the energy-performance preference the CPU's own
+frequency control follows, and the cpufreq governor, which on `amd-pstate`
+and `intel_pstate` stays `powersave` and lets EPP decide. Without the daemon
+the panel says so; the `desktop` role installs it.
+
+```bash
+btl-status perf              # the same sample in a shell
+btl-status set-profile performance
+```
 
 ## Development
 
