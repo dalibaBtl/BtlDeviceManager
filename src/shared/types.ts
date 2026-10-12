@@ -61,6 +61,8 @@ export type ServerMessage =
       error: string | null;
     }
   | { type: 'status'; status: SystemStatus | null; error: string | null }
+  | { type: 'perf'; sample: PerfSample }
+  | { type: 'vm-stats'; items: VmStats[] }
   | { type: 'term-data'; data: string }
   | { type: 'term-exit'; code: number }
   | { type: 'notice'; level: 'info' | 'error'; text: string };
@@ -87,7 +89,11 @@ export type ClientMessage =
   | { type: 'term-open'; cols: number; rows: number }
   | { type: 'term-input'; data: string }
   | { type: 'term-resize'; cols: number; rows: number }
-  | { type: 'term-run'; run: TerminalAction };
+  | { type: 'term-run'; run: TerminalAction }
+  | { type: 'watch'; topic: WatchTopic; on: boolean };
+
+/** Live feeds a window can ask for; the server samples only while someone watches. */
+export type WatchTopic = 'perf' | 'vm-stats';
 
 // ---- displays ----------------------------------------------------------------
 
@@ -344,4 +350,68 @@ export interface SystemStatus {
   vpn: VpnStatus;
   /** Epoch milliseconds when the read finished. */
   scannedAt: number;
+}
+
+// ---- live performance ---------------------------------------------------------
+
+export interface ProcessLoad {
+  pid: number;
+  name: string;
+  /** Share of one core over the sample window; 200 means two cores. */
+  cpuPercent: number;
+  rssMiB: number;
+}
+
+/** `power-profiles-daemon`'s view: the active profile and the ones it offers. */
+export interface PowerProfile {
+  active: string;
+  available: string[];
+}
+
+/** One `btl-status perf` sample: a one-second window on the host. */
+export interface PerfSample {
+  /** Epoch milliseconds at the end of the window. */
+  at: number;
+  /** 0–100 over all cores. */
+  cpuPercent: number;
+  /** 0–100 per core, in kernel order. */
+  cores: number[];
+  load1: number;
+  load5: number;
+  memory: { totalMiB: number; usedMiB: number; availableMiB: number; swapUsedMiB: number };
+  /** The CPU sensor when there is one, otherwise the hottest the machine reports. */
+  temperature: { celsius: number; sensor: string } | null;
+  /** Busiest processes over the window, busiest first. */
+  processes: ProcessLoad[];
+  /** `null` when power-profiles-daemon is not installed. */
+  powerProfile: PowerProfile | null;
+  /** Clock per core right now and the hardware range; empty when cpufreq is not exposed. */
+  clock: {
+    currentMHz: number[];
+    minMHz: number | null;
+    maxMHz: number | null;
+    boost: boolean | null;
+  };
+  /** The knobs a power profile turns, read back from sysfs so the effect of a switch is visible. */
+  policy: {
+    /** cpufreq governor; with amd-pstate-epp or intel_pstate `powersave` is normal and EPP decides. */
+    governor: string | null;
+    /** Energy-performance preference, e.g. `balance_performance`. */
+    energyPreference: string | null;
+    /** ACPI platform profile: firmware power and thermal limits, fan curve. */
+    platformProfile: string | null;
+    onAc: boolean | null;
+  };
+}
+
+/** One `btl-vm stats` entry: a running guest over a one-second window. */
+export interface VmStats {
+  name: string;
+  /** 0–100 per vCPU, in guest order. */
+  vcpus: number[];
+  /** Sum over vCPUs; 200 means two full cores. */
+  cpuPercent: number;
+  /** Host memory the guest currently occupies, and what it may grow to. */
+  rssMiB: number | null;
+  maxMiB: number;
 }

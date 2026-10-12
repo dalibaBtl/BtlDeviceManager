@@ -2,6 +2,7 @@
  * `btl-vm`: the command behind the Virtual machine panel.
  *
  *     btl-vm list [--json]                 domains on qemu:///system and the console setting
+ *     btl-vm stats [--json]                CPU per vCPU and memory of running guests, one-second window
  *     btl-vm start <name>                  virsh start
  *     btl-vm shutdown <name>               virsh shutdown (ACPI; the guest decides)
  *     btl-vm poweroff <name>               virsh destroy (pull the plug)
@@ -21,7 +22,8 @@ import { constants } from 'node:fs';
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import type { VirtualMachine, VmList, VmSettings } from '../shared/types.js';
+import type { VirtualMachine, VmList, VmSettings, VmStats } from '../shared/types.js';
+import { parseDomstats, vmStats } from './stats.js';
 import { consoleVariable, parseVmConf, parseWorkspaceNames, renderVmConf } from './settings.js';
 import { VIRSH_URI, isDown, isUp, parseDominfo, parseNames } from './virsh.js';
 
@@ -55,6 +57,22 @@ export async function main(argv: string[]): Promise<number> {
       case 'list':
         await list(rest.includes('--json'));
         return 0;
+      case 'stats': {
+        const items = await stats();
+        process.stdout.write(
+          rest.includes('--json')
+            ? JSON.stringify({ items, scannedAt: Date.now() }) + '\n'
+            : items.length === 0
+              ? 'no virtual machine is running\n'
+              : items
+                  .map(
+                    (s) =>
+                      `${s.name.padEnd(20)} CPU ${String(s.cpuPercent).padStart(3)} %  (vCPUs: ${s.vcpus.join(' ')})  memory ${s.rssMiB ?? '?'} of ${s.maxMiB} MiB\n`,
+                  )
+                  .join(''),
+        );
+        return 0;
+      }
       case 'start':
         await start(requireName(rest));
         return 0;
@@ -90,6 +108,7 @@ export async function main(argv: string[]): Promise<number> {
 }
 
 const USAGE = `usage: btl-vm list [--json]
+       btl-vm stats [--json]
        btl-vm start <name>
        btl-vm shutdown <name>
        btl-vm poweroff <name>
@@ -298,6 +317,23 @@ async function settings(): Promise<VmSettings> {
 }
 
 // ---- libvirt ----------------------------------------------------------------
+
+/** Length of the window `stats` measures over. */
+const STATS_WINDOW_MS = 1000;
+
+/**
+ * Two readings of `virsh domstats` one second apart. The counters are
+ * cumulative CPU time per vCPU, so the difference is what the guest is doing
+ * now; it is also what shows a vCPU Windows never schedules anything on.
+ */
+async function stats(): Promise<VmStats[]> {
+  const args = ['-c', VIRSH_URI, 'domstats', '--vcpu', '--balloon'];
+  const before = parseDomstats(await run('virsh', args));
+  const t0 = Date.now();
+  await sleep(STATS_WINDOW_MS);
+  const after = parseDomstats(await run('virsh', args));
+  return vmStats(before, after, (Date.now() - t0) / 1000);
+}
 
 export async function scan(): Promise<VmList> {
   const [vms, s] = await Promise.all([domains(), settings()]);

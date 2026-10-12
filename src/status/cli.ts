@@ -1,7 +1,9 @@
 /**
  * `btl-status`: the command behind the Status panel.
  *
- *     btl-status list [--json]     everything support asks about, in one read
+ *     btl-status list [--json]       everything support asks about, in one read
+ *     btl-status perf [--json]       a one-second window: CPU, memory, temperature, top processes, power profile
+ *     btl-status set-profile <name>  switch the power profile through power-profiles-daemon
  *
  * Read-only by design (see docs/IDEA.md): it shows what the machine says and
  * changes nothing. Every source is optional: a missing tool or an unreadable
@@ -15,6 +17,7 @@ import { open, readFile, readdir } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import type {
   NetworkDevice,
+  PerfSample,
   NetworkStatus,
   StatusHardware,
   StatusHost,
@@ -36,7 +39,19 @@ import {
   parseWifiList,
   parseWireguardLinks,
 } from './parse.js';
-import { summaryText } from './summary.js';
+import {
+  cpuPercent,
+  parseLoadavg,
+  parseMemoryUsage,
+  parsePowerProfiles,
+  parseProcPidStat,
+  parseProcStat,
+  pickTemperature,
+  topProcesses,
+  type ProcSnapshot,
+  type Sensor,
+} from './perf.js';
+import { describeClock, summaryText } from './summary.js';
 
 const TIMEOUT_MS = 15_000;
 
@@ -56,6 +71,21 @@ export async function main(argv: string[]): Promise<number> {
       );
       return 0;
     }
+    case 'perf': {
+      const sample = await perf();
+      process.stdout.write(
+        rest.includes('--json') ? JSON.stringify(sample) + '\n' : perfText(sample),
+      );
+      return 0;
+    }
+    case 'set-profile': {
+      const name = rest.find((a) => !a.startsWith('-'));
+      if (!name) {
+        process.stderr.write(`btl-status: missing profile name\n${USAGE}`);
+        return 2;
+      }
+      return setProfile(name);
+    }
     case '-h':
     case '--help':
       process.stdout.write(USAGE);
@@ -68,7 +98,227 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-const USAGE = 'usage: btl-status list [--json]\n';
+const USAGE = `usage: btl-status list [--json]
+       btl-status perf [--json]
+       btl-status set-profile <name>
+`;
+
+/** Length of the window `perf` measures over. */
+const PERF_WINDOW_MS = 1000;
+const TOP_PROCESSES = 5;
+
+/**
+ * Two readings of the kernel's counters one second apart, so the numbers are
+ * what is happening now rather than averages since boot (which is what `ps`
+ * reports for CPU). Everything else is read once at the end of the window.
+ */
+export async function perf(): Promise<PerfSample> {
+  const first = await Promise.all([readOrNull('/proc/stat'), readProcesses()]);
+  const t0 = Date.now();
+  await new Promise((r) => setTimeout(r, PERF_WINDOW_MS));
+  const [stat2, procs2, loadavg, meminfo, sensors, profile, clock, policy] = await Promise.all([
+    readOrNull('/proc/stat'),
+    readProcesses(),
+    readOrNull('/proc/loadavg'),
+    readOrNull('/proc/meminfo'),
+    readSensors(),
+    readPowerProfile(),
+    readClock(),
+    readPolicy(),
+  ]);
+  const elapsed = (Date.now() - t0) / 1000;
+  const a = parseProcStat(first[0] ?? '');
+  const b = parseProcStat(stat2 ?? '');
+  return {
+    at: Date.now(),
+    cpuPercent: cpuPercent(a.total, b.total),
+    cores: b.cores.map((c, i) => cpuPercent(a.cores[i] ?? c, c)),
+    ...parseLoadavg(loadavg ?? ''),
+    memory: parseMemoryUsage(meminfo ?? ''),
+    temperature: pickTemperature(sensors),
+    processes: topProcesses(first[1], procs2, elapsed, TOP_PROCESSES),
+    powerProfile: profile,
+    clock,
+    policy,
+  };
+}
+
+const CPU_SYSFS = '/sys/devices/system/cpu';
+
+/** `scaling_cur_freq` of every core (kHz in sysfs), plus the hardware range and whether boost is on. */
+async function readClock(): Promise<PerfSample['clock']> {
+  let dirs: string[] = [];
+  try {
+    dirs = (await readdir(CPU_SYSFS)).filter((d) => /^cpu\d+$/.test(d));
+  } catch {
+    return { currentMHz: [], minMHz: null, maxMHz: null, boost: null };
+  }
+  dirs.sort((a, b) => Number(a.slice(3)) - Number(b.slice(3)));
+  const mhz = async (file: string) => {
+    const n = Number((await readOrNull(file))?.trim());
+    return Number.isFinite(n) && n > 0 ? Math.round(n / 1000) : null;
+  };
+  const current = await Promise.all(
+    dirs.map((d) => mhz(`${CPU_SYSFS}/${d}/cpufreq/scaling_cur_freq`)),
+  );
+  const boost = (await readOrNull(`${CPU_SYSFS}/cpufreq/boost`))?.trim();
+  return {
+    currentMHz: current.filter((n): n is number => n !== null),
+    minMHz: await mhz(`${CPU_SYSFS}/cpu0/cpufreq/cpuinfo_min_freq`),
+    maxMHz: await mhz(`${CPU_SYSFS}/cpu0/cpufreq/cpuinfo_max_freq`),
+    boost: boost === '1' ? true : boost === '0' ? false : null,
+  };
+}
+
+/** The knobs behind a power profile, as sysfs shows them right now. */
+async function readPolicy(): Promise<PerfSample['policy']> {
+  const text = async (file: string) => (await readOrNull(file))?.trim() || null;
+  const [governor, energyPreference, platformProfile, ac] = await Promise.all([
+    text(`${CPU_SYSFS}/cpu0/cpufreq/scaling_governor`),
+    text(`${CPU_SYSFS}/cpu0/cpufreq/energy_performance_preference`),
+    text('/sys/firmware/acpi/platform_profile'),
+    readAcOnline(),
+  ]);
+  return { governor, energyPreference, platformProfile, onAc: ac };
+}
+
+/** Whether a mains adapter reports itself online; `null` on a machine without one. */
+async function readAcOnline(): Promise<boolean | null> {
+  let names: string[];
+  try {
+    names = await readdir('/sys/class/power_supply');
+  } catch {
+    return null;
+  }
+  for (const n of names) {
+    const type = (await readOrNull(`/sys/class/power_supply/${n}/type`))?.trim();
+    if (type !== 'Mains') continue;
+    const online = (await readOrNull(`/sys/class/power_supply/${n}/online`))?.trim();
+    if (online === '1') return true;
+    if (online === '0') return false;
+  }
+  return null;
+}
+
+/** Human form of a sample, for a shell. */
+function perfText(s: PerfSample): string {
+  const lines = [
+    `CPU ${s.cpuPercent} %  (cores: ${s.cores.join(' ')})  load ${s.load1} / ${s.load5}`,
+    `Memory ${s.memory.usedMiB} MiB used of ${s.memory.totalMiB} MiB, ${s.memory.availableMiB} MiB available` +
+      (s.memory.swapUsedMiB ? `, swap ${s.memory.swapUsedMiB} MiB` : ''),
+    s.temperature
+      ? `Temperature ${s.temperature.celsius} °C (${s.temperature.sensor})`
+      : 'Temperature: no sensor',
+    s.clock.currentMHz.length
+      ? `Clock ${describeClock(s.clock)}  (cores: ${s.clock.currentMHz.join(' ')} MHz)`
+      : 'Clock: cpufreq not exposed',
+    `Policy: platform profile ${s.policy.platformProfile ?? '?'}, EPP ${s.policy.energyPreference ?? '?'}, governor ${s.policy.governor ?? '?'}` +
+      (s.policy.onAc === null ? '' : s.policy.onAc ? ', on AC' : ', on battery'),
+    s.powerProfile
+      ? `Power profile ${s.powerProfile.active} (available: ${s.powerProfile.available.join(', ')})`
+      : 'Power profile: power-profiles-daemon is not installed',
+    ...s.processes.map(
+      (p) =>
+        `  ${String(p.cpuPercent).padStart(4)} %  ${String(p.rssMiB).padStart(6)} MiB  ${p.name} (${p.pid})`,
+    ),
+  ];
+  return lines.join('\n') + '\n';
+}
+
+/** All `/proc/[pid]/stat` files that could be read; a vanished pid is simply absent. */
+async function readProcesses(): Promise<Map<number, ProcSnapshot>> {
+  const out = new Map<number, ProcSnapshot>();
+  let names: string[];
+  try {
+    names = await readdir('/proc');
+  } catch {
+    return out;
+  }
+  await Promise.all(
+    names
+      .filter((n) => /^\d+$/.test(n))
+      .map(async (n) => {
+        const text = await readOrNull(`/proc/${n}/stat`);
+        const snap = text === null ? null : parseProcPidStat(text);
+        if (snap) out.set(Number(n), snap);
+      }),
+  );
+  return out;
+}
+
+/** Every `temp*_input` under `/sys/class/hwmon`, with the chip name and the input's label. */
+async function readSensors(): Promise<Sensor[]> {
+  const out: Sensor[] = [];
+  let chips: string[];
+  try {
+    chips = await readdir('/sys/class/hwmon');
+  } catch {
+    return out;
+  }
+  await Promise.all(
+    chips.map(async (h) => {
+      const dir = `/sys/class/hwmon/${h}`;
+      const chip = (await readOrNull(`${dir}/name`))?.trim();
+      if (!chip) return;
+      let files: string[];
+      try {
+        files = (await readdir(dir)).filter((f) => /^temp\d+_input$/.test(f));
+      } catch {
+        return;
+      }
+      for (const f of files) {
+        const raw = Number((await readOrNull(`${dir}/${f}`))?.trim());
+        if (!Number.isFinite(raw)) continue;
+        const label = (await readOrNull(`${dir}/${f.replace('_input', '_label')}`))?.trim() ?? '';
+        out.push({ chip, label, celsius: Math.round(raw / 1000) });
+      }
+    }),
+  );
+  return out;
+}
+
+async function readPowerProfile() {
+  const [get, list] = await Promise.all([
+    runOrEmpty('powerprofilesctl', ['get']),
+    runOrEmpty('powerprofilesctl', ['list']),
+  ]);
+  return parsePowerProfiles(get, list);
+}
+
+/**
+ * Switches the profile through power-profiles-daemon, which polkit lets the
+ * user at the keyboard do without root and which remembers the choice across
+ * reboots; the sysfs knobs underneath are root-only and forget it.
+ */
+async function setProfile(name: string): Promise<number> {
+  const profile = await readPowerProfile();
+  if (!profile) {
+    process.stderr.write(
+      'btl-status: power-profiles-daemon is not installed; the desktop role in btl-infra installs it\n',
+    );
+    return 1;
+  }
+  if (!profile.available.includes(name)) {
+    process.stderr.write(
+      `btl-status: no profile called ${name}; available: ${profile.available.join(', ')}\n`,
+    );
+    return 2;
+  }
+  process.stdout.write(`+ powerprofilesctl set ${name}\n`);
+  return new Promise((resolve) => {
+    execFile(
+      'powerprofilesctl',
+      ['set', name],
+      { encoding: 'utf8', timeout: TIMEOUT_MS },
+      (err, _out, stderr) => {
+        if (err) {
+          process.stderr.write(`btl-status: ${stderr.trim() || err.message}\n`);
+          resolve(1);
+        } else resolve(0);
+      },
+    );
+  });
+}
 
 /** Reads every source in parallel; each one degrades to empty on its own. */
 export async function scan(): Promise<SystemStatus> {

@@ -3,7 +3,7 @@
  * what the panel's "Copy summary" puts on the clipboard, so the person on
  * the phone with support can paste it instead of reading numbers aloud.
  */
-import type { DiskUsage, PlaybookRun, SystemStatus } from '../shared/types.js';
+import type { DiskUsage, PerfSample, PlaybookRun, SystemStatus } from '../shared/types.js';
 
 export function summaryText(s: SystemStatus, now: number = Date.now()): string {
   const lines: string[] = [];
@@ -72,6 +72,17 @@ export function describeRun(r: PlaybookRun): string {
   return [r.playbook ?? 'unknown playbook', r.user && `by ${r.user}`, r.from && `from ${r.from}`]
     .filter(Boolean)
     .join(' ');
+}
+
+/** `3.4 GHz now (0.6–4.7), boost on`: the mean across cores and the hardware range. */
+export function describeClock(c: PerfSample['clock']): string {
+  if (c.currentMHz.length === 0) return 'unknown';
+  const mean = c.currentMHz.reduce((a, b) => a + b, 0) / c.currentMHz.length;
+  const ghz = (mhz: number) => `${(mhz / 1000).toFixed(1)}`;
+  const range =
+    c.minMHz !== null && c.maxMHz !== null ? ` (${ghz(c.minMHz)}–${ghz(c.maxMHz)})` : '';
+  const boost = c.boost === null ? '' : c.boost ? ', boost on' : ', boost off';
+  return `${ghz(mean)} GHz now${range}${boost}`;
 }
 
 export function describeDisk(d: DiskUsage): string {

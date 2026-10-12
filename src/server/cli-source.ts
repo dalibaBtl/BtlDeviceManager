@@ -54,6 +54,64 @@ export class CliSource<R> {
   }
 }
 
+/** Pause between the end of one live sample and the start of the next. */
+const LIVE_GAP_MS = 1000;
+/** Pause after a failed live sample, so a broken CLI does not spin. */
+const LIVE_RETRY_MS = 5000;
+
+/**
+ * A feed that costs something to produce (each `btl-status perf` run takes a
+ * second of sampling), so it runs only while at least one window watches it:
+ * the CLI is run, its result pushed, a short pause taken, and again, until
+ * the last watcher leaves. A failure is pushed as an error and retried later.
+ */
+export class LiveSource<R> {
+  onSample: (result: R) => void = () => undefined;
+  onError: (error: string) => void = () => undefined;
+
+  private watchers = 0;
+  private loop: Promise<void> | null = null;
+
+  constructor(
+    private readonly cliPath: string,
+    private readonly args: string[],
+    private readonly parse: (json: string) => R,
+    private readonly run: (cliPath: string, args: string[]) => Promise<string> = runCli,
+  ) {}
+
+  /** Adds or removes one watcher; the loop starts with the first and stops after the last. */
+  watch(on: boolean): void {
+    this.watchers = Math.max(0, this.watchers + (on ? 1 : -1));
+    if (this.watchers > 0 && !this.loop) this.loop = this.spin();
+  }
+
+  get watching(): number {
+    return this.watchers;
+  }
+
+  stop(): void {
+    this.watchers = 0;
+  }
+
+  private async spin(): Promise<void> {
+    try {
+      while (this.watchers > 0) {
+        let wait = LIVE_GAP_MS;
+        try {
+          const result = this.parse(await this.run(this.cliPath, this.args));
+          if (this.watchers > 0) this.onSample(result);
+        } catch (e) {
+          this.onError(e instanceof Error ? e.message : String(e));
+          wait = LIVE_RETRY_MS;
+        }
+        if (this.watchers > 0) await new Promise((r) => setTimeout(r, wait));
+      }
+    } finally {
+      this.loop = null;
+    }
+  }
+}
+
 /** Runs one of this clone's CLIs with the same Node binary and returns stdout. */
 export function runCli(cliPath: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {

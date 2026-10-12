@@ -12,16 +12,20 @@ import type {
   DisplayLayout,
   DisplayOutput,
   FailedUnit,
+  PerfSample,
   Printer,
   ServerMessage,
   SystemStatus,
   TerminalAction,
   VirtualMachine,
   VmSettings,
+  VmStats,
+  WatchTopic,
 } from '../shared/types.js';
 import { isDown, isUp } from '../vm/virsh.js';
 import {
   CliSource,
+  LiveSource,
   parseList,
   parseStatus,
   runCli,
@@ -122,6 +126,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 interface Client {
   ws: WebSocket;
   terminal: Terminal | null;
+  /** Live feeds this window asked for; released when it leaves. */
+  watching: Set<WatchTopic>;
 }
 
 /** Snapshot of one feature's list as pushed to clients. */
@@ -171,6 +177,9 @@ class App {
   private readonly displaySource: CliSource<ListResult<DisplayOutput>>;
   private readonly vmSource: CliSource<ListResult<VirtualMachine>>;
   private readonly statusSource: CliSource<SystemStatus>;
+  private readonly perfLive: LiveSource<PerfSample>;
+  private readonly vmStatsLive: LiveSource<VmStats[]>;
+  private lastPerf: PerfSample | null = null;
   private refreshTimer: NodeJS.Timeout | null = null;
 
   onClientCountChange: (n: number) => void = () => undefined;
@@ -212,6 +221,30 @@ class App {
       this.status = { status, error };
       this.broadcast({ type: 'status', ...this.status });
     };
+
+    this.perfLive = new LiveSource(paths.statusCli, ['perf', '--json'], parsePerf);
+    this.perfLive.onSample = (sample) => {
+      this.lastPerf = sample;
+      this.broadcastTo('perf', { type: 'perf', sample });
+    };
+    this.perfLive.onError = (text) =>
+      this.broadcastTo('perf', { type: 'notice', level: 'error', text });
+    this.vmStatsLive = new LiveSource(
+      paths.vmCli,
+      ['stats', '--json'],
+      (text) =>
+        parseList('items', (v): v is VmStats => typeof (v as VmStats)?.name === 'string')(text)
+          .items,
+    );
+    this.vmStatsLive.onSample = (items) =>
+      this.broadcastTo('vm-stats', { type: 'vm-stats', items });
+    this.vmStatsLive.onError = (text) =>
+      this.broadcastTo('vm-stats', { type: 'notice', level: 'error', text });
+  }
+
+  /** The feed behind a topic, reduced to what watching needs. */
+  private live(topic: WatchTopic): { watch(on: boolean): void } {
+    return topic === 'perf' ? this.perfLive : this.vmStatsLive;
   }
 
   /** Only the printer scan is slow enough to show; display reads take milliseconds. */
@@ -241,6 +274,8 @@ class App {
     this.displaySource.stop();
     this.vmSource.stop();
     this.statusSource.stop();
+    this.perfLive.stop();
+    this.vmStatsLive.stop();
     for (const c of this.clients) {
       c.terminal?.kill();
       c.ws.close();
@@ -277,6 +312,17 @@ class App {
 
   statusSnapshot(): StatusState {
     return this.status;
+  }
+
+  /**
+   * Switches the power profile. Direct, like {@link moveWorkspace}:
+   * power-profiles-daemon lets the user at the keyboard do it without root
+   * and remembers it. The name must be one the last sample offered.
+   */
+  async setPowerProfile(name: string): Promise<void> {
+    const offered = this.lastPerf?.powerProfile?.available ?? [];
+    if (!offered.includes(name)) throw new Error(`no power profile called ${name}`);
+    await runCli(this.paths.statusCli, ['set-profile', name]);
   }
 
   /**
@@ -335,7 +381,7 @@ class App {
   // ---- clients -------------------------------------------------------------
 
   attach(ws: WebSocket): void {
-    const client: Client = { ws, terminal: null };
+    const client: Client = { ws, terminal: null, watching: new Set() };
     this.clients.add(client);
     this.onClientCountChange(this.clients.size);
     this.send(client, { type: 'printers', ...this.printers });
@@ -359,6 +405,7 @@ class App {
     });
     ws.on('close', () => {
       client.terminal?.kill();
+      for (const topic of client.watching) this.live(topic).watch(false);
       this.clients.delete(client);
       this.onClientCountChange(this.clients.size);
     });
@@ -370,6 +417,11 @@ class App {
 
   private broadcast(msg: ServerMessage): void {
     for (const c of this.clients) this.send(c, msg);
+  }
+
+  /** Sends only to the windows that asked for a live feed. */
+  private broadcastTo(topic: WatchTopic, msg: ServerMessage): void {
+    for (const c of this.clients) if (c.watching.has(topic)) this.send(c, msg);
   }
 
   private handleClientMessage(client: Client, msg: ClientMessage): void {
@@ -393,6 +445,21 @@ class App {
       case 'term-resize':
         client.terminal?.resize(msg.cols, msg.rows);
         break;
+      case 'watch': {
+        if (msg.topic !== 'perf' && msg.topic !== 'vm-stats') throw new Error('unknown feed');
+        const had = client.watching.has(msg.topic);
+        if (msg.on && !had) {
+          client.watching.add(msg.topic);
+          this.live(msg.topic).watch(true);
+          if (msg.topic === 'perf' && this.lastPerf) {
+            this.send(client, { type: 'perf', sample: this.lastPerf });
+          }
+        } else if (!msg.on && had) {
+          client.watching.delete(msg.topic);
+          this.live(msg.topic).watch(false);
+        }
+        break;
+      }
       case 'term-run':
         if (!client.terminal) throw new Error('terminal is not open');
         client.terminal.runChain(
@@ -510,6 +577,13 @@ function vmSteps(run: VmAction, known: VirtualMachine[], cli: string): string[] 
   }
 }
 
+/** Validates `btl-status perf --json` just enough: an object with a `cpuPercent`. */
+function parsePerf(text: string): PerfSample {
+  const data = JSON.parse(text) as Partial<PerfSample>;
+  if (!data || typeof data.cpuPercent !== 'number') throw new Error('CLI returned no sample');
+  return data as PerfSample;
+}
+
 /** Validates the `settings` object of `btl-vm list --json`; a malformed one yields the defaults. */
 function vmSettings(v: unknown): VmSettings {
   const s = v as Partial<VmSettings> | undefined;
@@ -577,6 +651,13 @@ async function handleHttp(
       await app.refreshStatus();
       sendJson(res, 200, app.statusSnapshot());
       return;
+    case 'POST /api/status/profile': {
+      const body = await readJson(req);
+      if (typeof body.profile !== 'string') throw new Error('missing profile');
+      await app.setPowerProfile(body.profile);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
     case 'POST /api/vms/refresh':
       await app.refreshVms();
       sendJson(res, 200, app.vmsSnapshot());
