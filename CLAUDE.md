@@ -150,6 +150,15 @@ Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
   one second apart, hwmon, `powerprofilesctl`); `set-profile` is the one
   direct status action, through power-profiles-daemon, never sysfs + sudo.
   `src/vm/stats.ts` does the same for `virsh domstats` (`btl-vm stats`).
+- `src/update/` is `btl-device-manager update`: `update.ts` turns git's
+  answers into an `UpdateState` (dirty or detached clones are never updated),
+  `cli.ts` fetches, compares with `origin/main` and runs `git pull --ff-only`,
+  `npm ci`, `npm run build` with the terminal as stdio. It is bundled into
+  `dist/server.js` and re-exported for the launcher. The server checks hourly,
+  watches `dist/server.js` and offers **Restart** when it changes;
+  `POST /api/restart` re-runs the launcher with `--reuse` on the same port, the
+  token passed in `$BTLDM_TOKEN` (never argv) and dropped by the launcher
+  before any shell inherits it.
 - `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
   for each feature (`CliSource<R>` is generic over the parsed result: lists
   for three panels, one object for status) and holds the watchers

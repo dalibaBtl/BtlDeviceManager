@@ -260,6 +260,29 @@ btl-status perf              # the same sample in a shell
 btl-status set-profile performance
 ```
 
+## Updating
+
+The version line at the bottom of the navigation compares this clone with
+`origin/main` once an hour (`git fetch` on the public repository, no
+credentials) and turns into **Update available (n)** when the repository is
+ahead; hovering lists the commits. **Update** types
+
+```bash
+btl-device-manager update        # git pull --ff-only && npm ci && npm run build
+btl-device-manager update --check [--json]   # only report; what the app runs
+```
+
+into the terminal, so every step and every error is in view. Nothing needs
+root: the clone belongs to the user who runs the app. When the new bundle is
+on disk the line changes to **New build ready · Restart**; Restart replaces
+the server process in place (same port, same token, so the window simply
+reconnects) and the terminal gets a fresh shell. The server never restarts on
+its own.
+
+A clone with modified tracked files or a branch that does not track `origin`
+is shown as _local changes_ / _not tracking origin_ and is never updated
+automatically; that is a development checkout, and `git` in it is yours.
+
 ## Development
 
 ```bash
