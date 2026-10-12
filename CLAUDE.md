@@ -112,6 +112,13 @@ Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
   built `dist/printers-cli.js`): `avahi.ts`, `cups.ts` parse command output,
   `model.ts` merges discovered printers with queues, `cli.ts` is the entry.
   The server runs `btl-printers list --json`; it has no CUPS knowledge.
+  Queues carry their unfinished jobs (`lpstat -l -o`) and alerts
+  (`lpstat -l -p`); `cancel <id> [job]` is typed with `sudo` unless the job
+  is the server user's own, because `cancel -a` and other people's jobs are
+  `Forbidden` to a plain user. Job files are unreadable and CUPS rewrites
+  `printers.conf` only after `DirtyCleanInterval` (30 s), so the server
+  rescans every 5 s for 90 s after a typed printer command and while jobs
+  wait, instead of trusting the `/etc/cups` watcher alone.
 - `src/displays/` is the `btl-displays` CLI: `sway.ts` parses `get_outputs`
   (identifier is `"make model serial"` verbatim, `HEADLESS-*` hidden),
   `geometry.ts` is shared with the canvas (logical size, snapping, overlap),

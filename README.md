@@ -73,12 +73,30 @@ empty list is not an error: printers go to sleep and drop off mDNS after a
 while; wake one up and press **Refresh**. Queues whose printer is asleep stay
 listed as _Not seen on network_ and remain usable.
 
+Unfinished jobs (`lpstat -l -o`) are listed under their printer with who sent
+them, the size and the time, and the status chip says _Printing_, _2 jobs
+waiting_ or the printer's own alert in plain words (_Out of paper_, _Paper
+jam_, _Cover open_, from `lpstat -l -p`'s `Alerts:` line).
+
+The list follows the terminal without a Refresh click: for 90 s after a
+printer command was typed, and for as long as a queue has jobs, the app
+rescans every 5 s instead of every minute. Polling is the only option:
+CUPS's job files are not readable by a plain user, and `printers.conf` is
+rewritten only after its `DirtyCleanInterval` (30 s), so the `/etc/cups`
+watcher fires half a minute after `lpadmin` and never for a job.
+
 | Button             | What the terminal runs           |
 | ------------------ | -------------------------------- |
 | **Initialize**     | `sudo btl-printers add <id>`     |
 | **Set as default** | `sudo btl-printers default <id>` |
 | **Test page**      | `btl-printers test <id>`         |
+| **Cancel** (a job) | `btl-printers cancel <id> <job>` |
+| **Cancel all**     | `sudo btl-printers cancel <id>`  |
 | **Remove**         | `sudo btl-printers remove <id>`  |
+
+Cancelling your own job needs no password; another account's job, and
+`cancel -a` (purging the queue), are refused by CUPS with _Forbidden_ for a
+plain user, so those lines carry `sudo`.
 
 `<id>` is a slug of the printer's mDNS name (`Example_L1234_Series`) and
 becomes the queue name. The same CLI works over SSH:
@@ -87,6 +105,8 @@ becomes the queue name. The same CLI works over SSH:
 btl-printers list            # table
 btl-printers list --json     # what the app reads
 sudo btl-printers add Example_L1234_Series
+btl-printers cancel Example_L1234_Series 12   # one job
+sudo btl-printers cancel Example_L1234_Series # every job on the queue
 ```
 
 ### Why not `lpadmin -m everywhere`
