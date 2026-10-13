@@ -479,6 +479,9 @@ select.mode {
 .kv .v {
   overflow-wrap: anywhere;
 }
+.kv .v button {
+  margin-left: 10px;
+}
 .kv.warn .v {
   color: var(--warn);
 }

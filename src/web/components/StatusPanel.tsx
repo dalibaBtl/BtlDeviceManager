@@ -66,6 +66,7 @@ function StatusBody({ s }: { s: SystemStatus }) {
     <div class="status">
       <Card title="This machine">
         <Row k="Name" v={s.host.name} />
+        <AccountRow user={s.host.user} />
         <Row k="System" v={`${s.host.os}, kernel ${s.host.kernel}`} />
         {update.value && (
           <Row
@@ -194,6 +195,35 @@ export function Row({ k, v, warn }: { k: string; v: string; warn?: boolean }) {
     <div class={`kv${warn ? ' warn' : ''}`}>
       <span class="k">{k}</span>
       <span class="v">{v}</span>
+    </div>
+  );
+}
+
+/**
+ * The account and the one thing a user may want to do with it. `passwd` is
+ * typed, not wrapped in a form: the password stays between the keyboard and
+ * the pty, and a rejected password shows PAM's reason where it was typed.
+ */
+function AccountRow({ user }: { user: string }) {
+  const change = () => {
+    runInTerminal({ action: 'passwd' }, true);
+    notify(
+      'info',
+      'In the terminal below, type the current password, then the new one twice. Nothing is shown while you type.',
+    );
+  };
+  return (
+    <div class="kv">
+      <span class="k">Account</span>
+      <span class="v">
+        {user}
+        <button
+          title="Runs passwd in the terminal; it asks for the current password first"
+          onClick={change}
+        >
+          Change password…
+        </button>
+      </span>
     </div>
   );
 }

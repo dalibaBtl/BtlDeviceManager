@@ -134,7 +134,8 @@ export type TerminalAction =
   | { action: 'vm-poweroff'; name: string }
   | { action: 'vm-console'; name: string }
   | { action: 'status-log'; unit: string; scope: UnitScope }
-  | { action: 'app-update' };
+  | { action: 'app-update' }
+  | { action: 'passwd' };
 
 /** Messages sent from client to server over the WebSocket. */
 export type ClientMessage =
@@ -295,6 +296,8 @@ export type UnitScope = 'system' | 'user';
 /** Identity of the machine, the first things support asks for. */
 export interface StatusHost {
   name: string;
+  /** Account the status was read as: the person at the keyboard, whose password **Change password** changes. */
+  user: string;
   /** `PRETTY_NAME` from os-release. */
   os: string;
   kernel: string;

@@ -661,6 +661,9 @@ export function buildSteps(run: TerminalAction, known: Known, ctx: StepContext):
     return [`${ctx.displays} apply ${shellQuote(file)}`];
   }
   if (run.action === 'app-update') return [`${ctx.app} update`];
+  // passwd is setuid and asks for the current password itself: no sudo, and
+  // the password never passes through the app as anything but keystrokes.
+  if (run.action === 'passwd') return ['passwd'];
   if (run.action === 'status-log') {
     const unit = known.failedUnits.find((u) => u.unit === run.unit && u.scope === run.scope);
     if (!unit) throw new Error('unknown unit; refresh the status and try again');

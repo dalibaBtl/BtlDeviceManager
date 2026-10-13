@@ -79,6 +79,10 @@ describe('buildSteps', () => {
     ]);
   });
 
+  it('changes the password with plain passwd', () => {
+    expect(buildSteps({ action: 'passwd' }, known, ctx('x'))).toEqual(['passwd']);
+  });
+
   it('prints the test page without sudo', () => {
     expect(buildSteps({ action: 'printer-test', id: "it's" }, known, ctx('btl-printers'))).toEqual([
       "btl-printers test 'it'\\''s'",

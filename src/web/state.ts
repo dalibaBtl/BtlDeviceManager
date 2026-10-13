@@ -137,9 +137,13 @@ export function restartApp(): Promise<void> {
   return guard(() => api.post('/api/restart')).then(() => undefined);
 }
 
-export function runInTerminal(run: TerminalAction): void {
+export function runInTerminal(run: TerminalAction, focus = false): void {
   socket.send({ type: 'term-run', run });
+  if (focus) terminalFocus.value++;
 }
+
+/** Bumped when a typed command expects the user to answer it; the terminal takes focus. */
+export const terminalFocus = signal(0);
 
 /** Applies a server message to the state. */
 export function applyServerMessage(msg: ServerMessage): void {

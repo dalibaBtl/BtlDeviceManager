@@ -14,7 +14,7 @@
  */
 import { execFile } from 'node:child_process';
 import { open, readFile, readdir } from 'node:fs/promises';
-import { hostname } from 'node:os';
+import { hostname, userInfo } from 'node:os';
 import type {
   NetworkDevice,
   PerfSample,
@@ -366,6 +366,7 @@ async function readHost(): Promise<StatusHost> {
   ]);
   return {
     name: hostname(),
+    user: userInfo().username,
     os: (osRelease && parseOsRelease(osRelease)) ?? 'Linux',
     kernel: kernel.trim(),
     uptimeSeconds: Math.floor(Number(uptime?.split(' ')[0]) || 0),

@@ -9,7 +9,9 @@ export function summaryText(s: SystemStatus, now: number = Date.now()): string {
   const lines: string[] = [];
   const h = s.host;
   const hw = s.hardware;
-  lines.push(`${h.name}  ${h.os}, kernel ${h.kernel}, up ${formatDuration(h.uptimeSeconds)}`);
+  lines.push(
+    `${h.name}  ${h.os}, kernel ${h.kernel}, up ${formatDuration(h.uptimeSeconds)}, user ${h.user}`,
+  );
   lines.push(
     `Hardware: ${[hw.vendor, hw.model].filter(Boolean).join(' ') || 'unknown'}` +
       (hw.biosVersion ? `, BIOS ${hw.biosVersion}` : '') +

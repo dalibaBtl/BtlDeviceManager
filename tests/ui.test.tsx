@@ -368,6 +368,7 @@ describe('StatusPanel', () => {
     state.status.value = SAMPLE;
     const html = render(<StatusPanel />);
     expect(html).toContain('example-station');
+    expect(html).toContain('>Change password…<');
     expect(html).toContain('Example Book 14');
     expect(html).toContain('no record on this machine');
     expect(html).toContain('example.service');

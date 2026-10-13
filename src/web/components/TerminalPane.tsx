@@ -1,8 +1,10 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import { effect } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
 import { socket } from '../api.js';
+import { terminalFocus } from '../state.js';
 
 /**
  * Embedded terminal under the panel. One shell per browser window, started in
@@ -51,6 +53,12 @@ export function TerminalPane() {
         term.writeln(`\r\n[shell exited with code ${m.code}; press Enter to start a new one]`);
       }
     });
+    let focusSeen = terminalFocus.peek();
+    const offFocus = effect(() => {
+      if (terminalFocus.value === focusSeen) return;
+      focusSeen = terminalFocus.value;
+      term.focus();
+    });
     const onData = term.onData((data) => socket.send({ type: 'term-input', data }));
     const onKey = term.onKey(({ domEvent }) => {
       if (domEvent.key === 'Enter' && exited.current) {
@@ -67,6 +75,7 @@ export function TerminalPane() {
 
     return () => {
       ro.disconnect();
+      offFocus();
       onData.dispose();
       onKey.dispose();
       offMsg();

@@ -194,6 +194,7 @@ describe('system parsing', () => {
 export const SAMPLE: SystemStatus = {
   host: {
     name: 'example-station',
+    user: 'example',
     os: 'Debian GNU/Linux 13 (trixie)',
     kernel: '6.12.0',
     uptimeSeconds: 2 * 86400 + 3 * 3600,
@@ -254,7 +255,7 @@ describe('summary', () => {
   it('puts everything support asks for into one text block', () => {
     const text = summaryText(SAMPLE, Date.parse('2026-10-11T12:00:00Z'));
     expect(text).toContain(
-      'example-station  Debian GNU/Linux 13 (trixie), kernel 6.12.0, up 2 d 3 h',
+      'example-station  Debian GNU/Linux 13 (trixie), kernel 6.12.0, up 2 d 3 h, user example',
     );
     expect(text).toContain('Hardware: Example Book 14, BIOS 1.02');
     expect(text).toContain('Last playbook run: no record on this machine');
