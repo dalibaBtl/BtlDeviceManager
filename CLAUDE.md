@@ -149,6 +149,7 @@ Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
   of `btl-status perf` (two readings of `/proc/stat` and `/proc/[pid]/stat`
   one second apart, hwmon, `powerprofilesctl`); `set-profile` is the one
   direct status action, through power-profiles-daemon, never sysfs + sudo.
+  `passwd` is typed as is (setuid, asks itself); never wrap it in a form.
   `src/vm/stats.ts` does the same for `virsh domstats` (`btl-vm stats`).
 - `src/update/` is `btl-device-manager update`: `update.ts` turns git's
   answers into an `UpdateState` (dirty or detached clones are never updated),

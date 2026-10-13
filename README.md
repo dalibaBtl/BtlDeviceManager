@@ -209,13 +209,19 @@ same facts on the clipboard as plain text; `btl-status list` prints that
 text in a shell, `--json` is what the server reads. The page follows
 `nmcli monitor` and rereads every minute.
 
-The one action is **Show log** on a failed service, typed as
+Two actions are typed into the terminal. **Show log** on a failed service
+runs
 
 ```bash
 sudo journalctl -u <unit> -n 50 --no-pager      # journalctl --user … for a user unit
 ```
 
 because the journal is readable only by root and the `adm` group.
+**Change password…** next to the account name runs plain `passwd` and moves
+the focus to the terminal, with a note on what it will ask. There is no form
+on purpose: a form would have to send the password through the app, while
+`passwd` takes it straight from the keyboard with echo off and prints the
+reason when it rejects one. The same password serves login and `sudo`.
 
 Every source is optional: a missing tool leaves its field empty instead of
 failing the page, since a half-broken machine is when the page is needed.
