@@ -105,7 +105,8 @@ there. Do not install packages from the app.
 ## State of the repository
 
 Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
-`Displays`, `Virtual machine`, `Status`) and a live `Performance` panel.
+`Displays`, `Virtual machine`, `Status`), a live `Performance` panel and a
+`Keyboard` panel.
 `docs/adr/0001` says where and why it diverges from bgcm.
 
 - `src/printers/` is the `btl-printers` CLI (`cli/btl-printers.js` loads the
@@ -129,6 +130,12 @@ Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
   under `~/.cache/btl-device-manager/layouts/` and types the command.
   `move-workspace` is the one display action run directly (no root, one-line
   failure, and it is triggered by a drag).
+- `src/keyboard/` is the `btl-keyboard` CLI: `layout.ts` holds the whitelist
+  (Czech `qwerty` and `basic` = QWERTZ, never an empty variant), parses
+  `get_inputs` (sway reports only the xkb description, so that maps a
+  keyboard back to a variant) and renders `config.d/keyboard.conf`.
+  `set <variant>` writes the file and applies the same lines with `swaymsg`;
+  it is a direct action, like `console-workspace`.
 - `src/vm/` is the `btl-vm` CLI: `virsh.ts` parses `dominfo` (virsh has no
   JSON; `list --all --name` plus one `dominfo` per domain copes with names
   containing spaces), `settings.ts` reads the `set $ws… "…"` workspace names
@@ -162,8 +169,9 @@ Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
   before any shell inherits it.
 - `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
   for each feature (`CliSource<R>` is generic over the parsed result: lists
-  for three panels, one object for status) and holds the watchers
-  (`/etc/cups`, `swaymsg -t subscribe`, `virsh event --loop`, `nmcli monitor`).
+  for three panels, one object for status and keyboard) and holds the watchers
+  (`/etc/cups`, `swaymsg -t subscribe` for outputs and inputs,
+  `virsh event --loop`, `nmcli monitor`).
   `LiveSource` is the other kind of feed: it loops a CLI only while a window
   has sent `watch {topic, on}`, for the Performance panel and the per-vCPU
   load; a sample costs a second, so nothing samples unwatched. `buildSteps`

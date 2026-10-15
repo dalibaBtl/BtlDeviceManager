@@ -1,8 +1,8 @@
 # BTL Device Manager
 
 Desktop app for the person sitting at a BTL workstation (Debian 13, sway) to
-manage **that one machine** without a terminal: printers and displays today;
-the Windows VM and a status panel follow.
+manage **that one machine** without a terminal: printers, displays, keyboard
+layout, the Windows VM, and a status and performance view.
 
 ```text
 ┌────────────┬──────────────────────────────────────────────┐
@@ -158,6 +158,38 @@ btl-displays list [--json]
 btl-displays preview layout.json     # the outputs.conf a layout would produce
 btl-displays config                  # the current outputs.conf
 btl-displays move-workspace "3: ai" "<make model serial>"
+```
+
+## Keyboard
+
+Two buttons: **Czech QWERTY** (what the `desktop` role sets) and **Czech
+QWERTZ** (what most Czech keyboards have printed on them). A click switches
+at once, without the terminal: `btl-keyboard set <variant>` writes
+`~/.config/sway/config.d/keyboard.conf`
+
+```
+input type:keyboard xkb_layout cz
+input type:keyboard xkb_variant basic
+```
+
+and applies the same two lines with `swaymsg`. sway reads `config.d/` after
+the role's `input type:keyboard { … }` block, so the file wins on the next
+start and the role's other keyboard settings (Num Lock on) stay. QWERTZ is
+the `basic` variant rather than an empty one, which `swaymsg` could not pass.
+
+sway reports the active layout only by its xkb description (`Czech (QWERTY)`,
+`Czech`), so that is what marks the button in use. Keyboards that disagree,
+or a layout the panel does not offer, are shown as they are instead. Under
+the buttons is a field to type into and check where Y and Z went. The panel
+follows sway's input events, so a keyboard plugged in or a layout changed in
+the terminal shows up on its own.
+
+Windows in the virtual machine keeps its own layout: the viewer passes keys
+through, and Windows maps them with whatever it is set to.
+
+```bash
+btl-keyboard list [--json]
+btl-keyboard set qwerty|basic
 ```
 
 ## Virtual machine
