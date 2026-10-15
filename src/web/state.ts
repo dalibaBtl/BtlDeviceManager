@@ -11,6 +11,8 @@ import type {
   VirtualMachine,
   VmSettings,
   VmStats,
+  WallpaperFit,
+  WallpaperState,
   WatchTopic,
 } from '../shared/types.js';
 import { api, socket } from './api.js';
@@ -21,11 +23,13 @@ import { api, socket } from './api.js';
  */
 
 /** The panels in the left navigation; one per feature, in the order they appear. */
-export type Panel = 'printers' | 'displays' | 'keyboard' | 'vm' | 'status' | 'performance';
+export type Panel =
+  'printers' | 'displays' | 'keyboard' | 'wallpaper' | 'vm' | 'status' | 'performance';
 export const PANELS: { id: Panel; label: string }[] = [
   { id: 'printers', label: 'Printers' },
   { id: 'displays', label: 'Displays' },
   { id: 'keyboard', label: 'Keyboard' },
+  { id: 'wallpaper', label: 'Wallpaper' },
   { id: 'vm', label: 'Virtual machine' },
   { id: 'status', label: 'Status' },
   { id: 'performance', label: 'Performance' },
@@ -50,6 +54,11 @@ export const vmSettings = signal<VmSettings>({ workspaces: [] });
 
 export const keyboard = signal<KeyboardState | null>(null);
 export const keyboardError = signal<string | null>(null);
+
+export const wallpaper = signal<WallpaperState | null>(null);
+export const wallpaperError = signal<string | null>(null);
+/** An upload or switch is running; the panel disables its controls meanwhile. */
+export const wallpaperBusy = signal(false);
 
 export const status = signal<SystemStatus | null>(null);
 export const statusError = signal<string | null>(null);
@@ -83,6 +92,39 @@ export function refreshKeyboard(): Promise<void> {
 /** Switches the keyboard layout; sway's input event brings the new state to every window. */
 export function setKeyboardLayout(variant: string): Promise<void> {
   return guard(() => api.post('/api/keyboard/layout', { variant })).then(() => undefined);
+}
+
+export function refreshWallpaper(): Promise<void> {
+  return guard(() => api.post('/api/wallpaper/refresh')).then(() => undefined);
+}
+
+/** Runs one wallpaper change with the panel locked; the new state arrives over the socket. */
+function wallpaperChange(fn: () => Promise<unknown>): Promise<void> {
+  wallpaperBusy.value = true;
+  return guard(fn).then(() => {
+    wallpaperBusy.value = false;
+  });
+}
+
+export function setWallpaperColor(color: string): Promise<void> {
+  return wallpaperChange(() => api.post('/api/wallpaper/color', { color }));
+}
+
+export function setWallpaperFit(fit: WallpaperFit, color: string | null): Promise<void> {
+  return wallpaperChange(() => api.post('/api/wallpaper/fit', { fit, color }));
+}
+
+export function uploadWallpaper(
+  file: File,
+  fit: WallpaperFit,
+  color: string | null,
+): Promise<void> {
+  const params = new URLSearchParams({ fit, ...(color ? { color } : {}) });
+  return wallpaperChange(() => api.upload(`/api/wallpaper/image?${params}`, file));
+}
+
+export function resetWallpaper(): Promise<void> {
+  return wallpaperChange(() => api.post('/api/wallpaper/reset'));
 }
 
 /** Switches the power profile; the next live sample shows the result. */
@@ -188,6 +230,10 @@ export function applyServerMessage(msg: ServerMessage): void {
     case 'keyboard':
       keyboard.value = msg.keyboard;
       keyboardError.value = msg.error;
+      break;
+    case 'wallpaper':
+      wallpaper.value = msg.wallpaper;
+      wallpaperError.value = msg.error;
       break;
     case 'perf':
       perf.value = msg.sample;

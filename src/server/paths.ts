@@ -98,6 +98,17 @@ export function keyboardCliPath(): string {
   return path.resolve(here, '..', 'cli', 'btl-keyboard.js');
 }
 
+/** Absolute path of `cli/btl-wallpaper.js` in this clone. */
+export function wallpaperCliPath(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, '..', 'cli', 'btl-wallpaper.js');
+}
+
+/** Where an uploaded picture waits until `btl-wallpaper set-image` has copied it. */
+export function uploadsDir(): string {
+  return path.join(cacheDir(), 'uploads');
+}
+
 /** Where the server stores layout files for `btl-displays apply <file>`. */
 export function layoutsDir(): string {
   return path.join(cacheDir(), 'layouts');

@@ -2,7 +2,7 @@
 
 Desktop app for the person sitting at a BTL workstation (Debian 13, sway) to
 manage **that one machine** without a terminal: printers, displays, keyboard
-layout, the Windows VM, and a status and performance view.
+layout, wallpaper, the Windows VM, and a status and performance view.
 
 ```text
 ┌────────────┬──────────────────────────────────────────────┐
@@ -190,6 +190,38 @@ through, and Windows maps them with whatever it is set to.
 ```bash
 btl-keyboard list [--json]
 btl-keyboard set qwerty|basic
+```
+
+## Wallpaper
+
+The background of every display: **Choose picture…** (PNG or JPEG, up to
+64 MiB) or **Plain colour**. For a picture, _Fit_ picks how it covers the
+screen (fill crops, fit shows it whole with bars, center, tile, stretch) and
+_bars_ the colour of what it leaves uncovered. **Reset to default** goes back
+to the colour the `desktop` role sets. Every change applies at once, without
+the terminal: `btl-wallpaper` writes `~/.config/sway/config.d/wallpaper.conf`
+
+```
+output * bg "/home/<user>/.local/share/btl-device-manager/wallpapers/<sha256>.png" fit #01070e
+```
+
+and runs the same line through `swaymsg`. The file belongs to the app and is
+rewritten whole on every change; a line written there by hand is read once,
+so the panel shows what is on screen, and replaced by the next change.
+
+The picture is copied under `~/.local/share/btl-device-manager/wallpapers/`,
+named by its hash, and the config points there by absolute path. sway does
+not expand `~` in `output bg`, and a link to the original in `~/Pictures`
+would turn into a grey screen and a start-up error once it is moved. Copies
+no longer in use are deleted. The browser does not reveal file paths, so the
+app window uploads the picture to the local server, which hands it to the
+CLI and removes the upload.
+
+```bash
+btl-wallpaper list [--json]
+btl-wallpaper set-image ~/Pictures/hud.png fit '#01070e'
+btl-wallpaper set-color '#1d2330'
+btl-wallpaper reset
 ```
 
 ## Virtual machine

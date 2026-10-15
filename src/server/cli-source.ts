@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { watch as fsWatch } from 'node:fs';
-import type { KeyboardState, SystemStatus } from '../shared/types.js';
+import type { KeyboardState, SystemStatus, WallpaperState } from '../shared/types.js';
 
 /** Upper bound for one `list --json` run; mDNS browsing alone takes a few seconds. */
 const LIST_TIMEOUT_MS = 20_000;
@@ -164,6 +164,15 @@ export function parseKeyboard(text: string): KeyboardState {
     throw new Error('CLI returned no keyboard state');
   }
   return data as KeyboardState;
+}
+
+/** Validates `btl-wallpaper list --json` just enough: an object with a `fits` list. */
+export function parseWallpaper(text: string): WallpaperState {
+  const data = JSON.parse(text) as Partial<WallpaperState>;
+  if (!data || typeof data !== 'object' || !Array.isArray(data.fits)) {
+    throw new Error('CLI returned no wallpaper state');
+  }
+  return data as WallpaperState;
 }
 
 /**

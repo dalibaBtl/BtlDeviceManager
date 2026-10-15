@@ -12,6 +12,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: { 'x-btldm-token': token, ...(body ? { 'content-type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
+  return answer<T>(res);
+}
+
+async function answer<T>(res: Response): Promise<T> {
   const data = (await res.json()) as T & { error?: string };
   if (!res.ok) throw new Error(data.error ?? `${res.status} ${res.statusText}`);
   return data;
@@ -20,6 +24,25 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body: unknown = {}) => request<T>('POST', path, body),
+  /** Sends a file as the raw request body; parameters go in the path's query. */
+  upload: async <T>(path: string, file: Blob): Promise<T> =>
+    answer<T>(
+      await fetch(new URL(path, location.origin), {
+        method: 'POST',
+        headers: { 'x-btldm-token': token, 'content-type': 'application/octet-stream' },
+        body: file,
+      }),
+    ),
+  /**
+   * URL for an element that loads by itself (`<img src>`), which cannot send
+   * the header; the token goes in the query, as on the WebSocket.
+   */
+  src: (path: string, params: Record<string, string> = {}) => {
+    const url = new URL(path, location.origin);
+    url.searchParams.set('t', token);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    return url.pathname + url.search;
+  },
 };
 
 /**

@@ -1,13 +1,21 @@
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { createReadStream, existsSync, mkdirSync, openSync, statSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  openSync,
+  statSync,
+} from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { homedir, userInfo } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { validateLayout } from '../displays/config.js';
+import { MAX_IMAGE_BYTES, isColor, isFit } from '../wallpaper/config.js';
 import type {
   ClientMessage,
   DisplayLayout,
@@ -23,6 +31,7 @@ import type {
   VirtualMachine,
   VmSettings,
   VmStats,
+  WallpaperState,
   WatchTopic,
 } from '../shared/types.js';
 import { checkUpdate, printCheck, runUpdate } from '../update/cli.js';
@@ -33,6 +42,7 @@ import {
   parseKeyboard,
   parseList,
   parseStatus,
+  parseWallpaper,
   runCli,
   watchCups,
   watchDist,
@@ -52,7 +62,9 @@ import {
   printersCommand,
   repoRoot,
   statusCliPath,
+  uploadsDir,
   vmCliPath,
+  wallpaperCliPath,
 } from './paths.js';
 
 /** The launcher's `update` subcommand lives in this bundle too; one build, one import. */
@@ -116,6 +128,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     vmCli: vmCliPath(),
     statusCli: statusCliPath(),
     keyboardCli: keyboardCliPath(),
+    wallpaperCli: wallpaperCliPath(),
     appCommand: appCommand(),
     root: repoRoot(),
   });
@@ -234,6 +247,7 @@ interface AppPaths {
   vmCli: string;
   statusCli: string;
   keyboardCli: string;
+  wallpaperCli: string;
   /** `btl-device-manager` or the launcher's absolute path; see {@link appCommand}. */
   appCommand: string;
   /** The clone the server runs from; what `update` works on and whose `dist/` is watched. */
@@ -249,6 +263,12 @@ interface StatusState {
 /** Snapshot of the keyboard read as pushed to clients. */
 interface KeyboardSnapshot {
   keyboard: KeyboardState | null;
+  error: string | null;
+}
+
+/** Snapshot of the wallpaper read as pushed to clients. */
+interface WallpaperSnapshot {
+  wallpaper: WallpaperState | null;
   error: string | null;
 }
 
@@ -272,12 +292,14 @@ class App {
   };
   private status: StatusState = { status: null, error: null };
   private keyboard: KeyboardSnapshot = { keyboard: null, error: null };
+  private wallpaper: WallpaperSnapshot = { wallpaper: null, error: null };
   private scanning = false;
   private readonly printerSource: CliSource<ListResult<Printer>>;
   private readonly displaySource: CliSource<ListResult<DisplayOutput>>;
   private readonly vmSource: CliSource<ListResult<VirtualMachine>>;
   private readonly statusSource: CliSource<SystemStatus>;
   private readonly keyboardSource: CliSource<KeyboardState>;
+  private readonly wallpaperSource: CliSource<WallpaperState>;
   private readonly perfLive: LiveSource<PerfSample>;
   private readonly vmStatsLive: LiveSource<VmStats[]>;
   private lastPerf: PerfSample | null = null;
@@ -340,6 +362,12 @@ class App {
       this.broadcast({ type: 'keyboard', ...this.keyboard });
     };
 
+    this.wallpaperSource = new CliSource(paths.wallpaperCli, parseWallpaper);
+    this.wallpaperSource.onUpdate = (wallpaper, error) => {
+      this.wallpaper = { wallpaper, error };
+      this.broadcast({ type: 'wallpaper', ...this.wallpaper });
+    };
+
     this.perfLive = new LiveSource(paths.statusCli, ['perf', '--json'], parsePerf);
     this.perfLive.onSample = (sample) => {
       this.lastPerf = sample;
@@ -377,6 +405,7 @@ class App {
     void this.vmSource.refresh();
     void this.statusSource.refresh();
     void this.keyboardSource.refresh();
+    void this.wallpaperSource.refresh();
     this.printerSource.watch(watchCups);
     this.displaySource.watch(watchSwayOutputs);
     this.vmSource.watch(watchVirshEvents);
@@ -432,6 +461,7 @@ class App {
     this.vmSource.stop();
     this.statusSource.stop();
     this.keyboardSource.stop();
+    this.wallpaperSource.stop();
     this.perfLive.stop();
     this.vmStatsLive.stop();
     for (const c of this.clients) {
@@ -492,6 +522,61 @@ class App {
     }
     await runCli(this.paths.keyboardCli, ['set', variant]);
     await this.keyboardSource.refresh();
+  }
+
+  refreshWallpaper(): Promise<void> {
+    return this.wallpaperSource.refresh();
+  }
+
+  wallpaperSnapshot(): WallpaperSnapshot {
+    return this.wallpaper;
+  }
+
+  /**
+   * The picture on screen now: `wallpaper.conf`'s, else the main config's.
+   * The only file the image endpoint serves, so the token cannot be used to
+   * read anything but a path the user's own sway config already names.
+   */
+  wallpaperImage(): string | null {
+    const w = this.wallpaper.wallpaper;
+    const s = w?.current ?? w?.fallback ?? null;
+    return s?.kind === 'image' && !w?.imageMissing ? s.path : null;
+  }
+
+  /**
+   * The wallpaper actions. Direct, like {@link setKeyboardLayout}: one line in
+   * the user's own sway config and a `swaymsg`, no root, a one-line failure.
+   * The CLI checks colour, fit and picture again; the server only refuses
+   * what it can see is wrong before starting a process.
+   */
+  async setWallpaperColor(color: string): Promise<void> {
+    if (!isColor(color)) throw new Error(`expected a colour like #1d2330, got ${color}`);
+    await this.runWallpaper(['set-color', color]);
+  }
+
+  /** Changes how the current picture is laid out without choosing it again. */
+  async setWallpaperFit(fit: string, color: string | null): Promise<void> {
+    const path = this.wallpaperImage();
+    if (!path) throw new Error('no picture is set; choose one first');
+    await this.runWallpaper(imageArgs(path, fit, color));
+  }
+
+  /** Hands an uploaded picture to the CLI, which copies it; the upload is removed either way. */
+  async setWallpaperImage(file: string, fit: string, color: string | null): Promise<void> {
+    try {
+      await this.runWallpaper(imageArgs(file, fit, color));
+    } finally {
+      await rm(file, { force: true });
+    }
+  }
+
+  async resetWallpaper(): Promise<void> {
+    await this.runWallpaper(['reset']);
+  }
+
+  private async runWallpaper(args: string[]): Promise<void> {
+    await runCli(this.paths.wallpaperCli, args);
+    await this.wallpaperSource.refresh();
   }
 
   /**
@@ -569,6 +654,7 @@ class App {
     this.send(client, { type: 'vms', ...this.vms });
     this.send(client, { type: 'status', ...this.status });
     this.send(client, { type: 'keyboard', ...this.keyboard });
+    this.send(client, { type: 'wallpaper', ...this.wallpaper });
     this.send(client, { type: 'scanning', scanning: this.scanning });
     this.send(client, this.updateSnapshot());
 
@@ -781,6 +867,14 @@ function vmSteps(run: VmAction, known: VirtualMachine[], cli: string): string[] 
   }
 }
 
+/** `set-image` arguments, refusing a fit or colour the CLI would refuse anyway. */
+function imageArgs(file: string, fit: string, color: string | null): string[] {
+  if (!isFit(fit)) throw new Error(`unknown fit ${fit}`);
+  if (color !== null && !isColor(color))
+    throw new Error(`expected a colour like #1d2330, got ${color}`);
+  return ['set-image', file, fit, ...(color ? [color] : [])];
+}
+
 /** Validates `btl-status perf --json` just enough: an object with a `cpuPercent`. */
 function parsePerf(text: string): PerfSample {
   const data = JSON.parse(text) as Partial<PerfSample>;
@@ -876,6 +970,57 @@ async function handleHttp(
       sendJson(res, 200, app.keyboardSnapshot());
       return;
     }
+    case 'GET /api/wallpaper':
+      sendJson(res, 200, app.wallpaperSnapshot());
+      return;
+    case 'POST /api/wallpaper/refresh':
+      await app.refreshWallpaper();
+      sendJson(res, 200, app.wallpaperSnapshot());
+      return;
+    case 'GET /api/wallpaper/image': {
+      const file = app.wallpaperImage();
+      if (!file || !existsSync(file)) {
+        sendJson(res, 404, { error: 'no picture is set' });
+        return;
+      }
+      res.writeHead(200, {
+        'content-type': IMAGE_MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
+        'cache-control': 'no-cache',
+      });
+      createReadStream(file).pipe(res);
+      return;
+    }
+    case 'POST /api/wallpaper/color': {
+      const body = await readJson(req);
+      if (typeof body.color !== 'string') throw new Error('missing color');
+      await app.setWallpaperColor(body.color);
+      sendJson(res, 200, app.wallpaperSnapshot());
+      return;
+    }
+    case 'POST /api/wallpaper/fit': {
+      const body = await readJson(req);
+      if (typeof body.fit !== 'string') throw new Error('missing fit');
+      if (body.color !== null && typeof body.color !== 'string')
+        throw new Error('color must be a string or null');
+      await app.setWallpaperFit(body.fit, body.color);
+      sendJson(res, 200, app.wallpaperSnapshot());
+      return;
+    }
+    case 'POST /api/wallpaper/image': {
+      // The picture is the raw body; fit and colour travel in the query.
+      const file = await receiveFile(req, uploadsDir(), MAX_IMAGE_BYTES);
+      await app.setWallpaperImage(
+        file,
+        url.searchParams.get('fit') ?? 'fill',
+        url.searchParams.get('color'),
+      );
+      sendJson(res, 200, app.wallpaperSnapshot());
+      return;
+    }
+    case 'POST /api/wallpaper/reset':
+      await app.resetWallpaper();
+      sendJson(res, 200, app.wallpaperSnapshot());
+      return;
     case 'POST /api/vms/refresh':
       await app.refreshVms();
       sendJson(res, 200, app.vmsSnapshot());
@@ -928,6 +1073,50 @@ function serveStatic(webDir: string, pathname: string, res: http.ServerResponse)
     'cache-control': 'no-cache',
   });
   createReadStream(file).pipe(res);
+}
+
+/** Content types for the wallpaper preview; the CLI only ever copies PNG and JPEG. */
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+};
+
+/**
+ * Streams a request body into a fresh file under `dir` and returns its path.
+ * A body over `limit` bytes is cut off and its partial file removed, so a
+ * runaway upload cannot fill the disk.
+ */
+async function receiveFile(req: http.IncomingMessage, dir: string, limit: number): Promise<string> {
+  await mkdir(dir, { recursive: true });
+  const file = path.join(dir, `upload-${randomBytes(8).toString('hex')}`);
+  const out = createWriteStream(file);
+  let size = 0;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      req.on('data', (c: Buffer) => {
+        size += c.length;
+        if (size > limit) {
+          req.destroy();
+          reject(new Error(`the picture is larger than ${limit >> 20} MiB`));
+          return;
+        }
+        out.write(c);
+      });
+      req.on('end', () => out.end(resolve));
+      req.on('error', reject);
+      out.on('error', reject);
+    });
+  } catch (e) {
+    out.destroy();
+    await rm(file, { force: true });
+    throw e;
+  }
+  if (size === 0) {
+    await rm(file, { force: true });
+    throw new Error('empty upload');
+  }
+  return file;
 }
 
 function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {

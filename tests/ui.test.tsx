@@ -3,7 +3,12 @@
 // view code and to assert which actions appear for which printer state.
 import { render } from 'preact-render-to-string';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { KeyboardState, Printer, VirtualMachine } from '../src/shared/types.js';
+import type {
+  KeyboardState,
+  Printer,
+  VirtualMachine,
+  WallpaperState,
+} from '../src/shared/types.js';
 
 beforeAll(() => {
   // The API client reads these at import time.
@@ -391,6 +396,60 @@ describe('KeyboardPanel', () => {
     expect(describeActive({ ...base, current: null, active: ['English (US)'] })).toContain(
       'set elsewhere',
     );
+  });
+});
+
+describe('WallpaperPanel', () => {
+  const base: WallpaperState = {
+    current: null,
+    fallback: { kind: 'color', color: '#000000' },
+    imageMissing: false,
+    fits: ['fill', 'fit', 'center', 'tile', 'stretch'],
+    scannedAt: Date.now(),
+  };
+
+  async function loadWallpaper() {
+    const state = await import('../src/web/state.js');
+    const panel = await import('../src/web/components/WallpaperPanel.jsx');
+    return { state, ...panel };
+  }
+
+  it("shows the station's default colour without Reset or a fit choice", async () => {
+    const { state, WallpaperPanel } = await loadWallpaper();
+    state.wallpaperError.value = null;
+    state.wallpaper.value = base;
+    const html = render(<WallpaperPanel />);
+    expect(html).toContain("colour #000000 (this station's default)");
+    expect(html).toContain('Choose picture…');
+    expect(html).not.toContain('Reset to default');
+    expect(html).not.toContain('Fit (whole picture, bars)');
+  });
+
+  it('previews a picture through the token URL and offers fit, bars and Reset', async () => {
+    const { state, WallpaperPanel } = await loadWallpaper();
+    state.wallpaper.value = {
+      ...base,
+      current: { kind: 'image', path: '/home/example/hud.png', fit: 'fit', color: '#01070e' },
+    };
+    const html = render(<WallpaperPanel />);
+    expect(html).toContain('src="/api/wallpaper/image?t=test');
+    expect(html).toContain('object-fit:contain');
+    expect(html).toContain('<option selected value="fit">');
+    expect(html).toContain('value="#01070e"');
+    expect(html).toContain('Reset to default');
+  });
+
+  it('says when the picture is gone and shows the CLI error verbatim', async () => {
+    const { state, WallpaperPanel, describeWallpaper } = await loadWallpaper();
+    const missing: WallpaperState = {
+      ...base,
+      current: { kind: 'image', path: '/gone.png', fit: 'fill', color: null },
+      imageMissing: true,
+    };
+    expect(describeWallpaper(missing)).toContain('picture is missing');
+    state.wallpaperError.value = 'btl-wallpaper: swaymsg: unable to connect';
+    expect(render(<WallpaperPanel />)).toContain('unable to connect');
+    state.wallpaperError.value = null;
   });
 });
 

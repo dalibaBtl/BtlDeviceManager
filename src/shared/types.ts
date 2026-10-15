@@ -111,6 +111,7 @@ export type ServerMessage =
     }
   | { type: 'status'; status: SystemStatus | null; error: string | null }
   | { type: 'keyboard'; keyboard: KeyboardState | null; error: string | null }
+  | { type: 'wallpaper'; wallpaper: WallpaperState | null; error: string | null }
   | { type: 'perf'; sample: PerfSample }
   | { type: 'vm-stats'; items: VmStats[] }
   | { type: 'update'; state: UpdateState | null; built: boolean }
@@ -324,6 +325,28 @@ export interface KeyboardState {
    * file is absent and the main sway config decides.
    */
   saved: string | null;
+  scannedAt: number;
+}
+
+// ---- wallpaper ----------------------------------------------------------------
+
+/** sway's image modes for `output bg`. */
+export type WallpaperFit = 'fill' | 'fit' | 'center' | 'tile' | 'stretch';
+
+/** One `output * bg …` line: a solid colour, or a picture with the colour that fills its bars. */
+export type WallpaperSetting =
+  | { kind: 'color'; color: string }
+  | { kind: 'image'; path: string; fit: WallpaperFit; color: string | null };
+
+/** Result of one `btl-wallpaper list --json` run. */
+export interface WallpaperState {
+  /** What `~/.config/sway/config.d/wallpaper.conf` sets; `null` when it sets nothing. */
+  current: WallpaperSetting | null;
+  /** What the main sway config sets, in effect while `current` is `null`. */
+  fallback: WallpaperSetting | null;
+  /** `current` names a picture that is not there; sway falls back to its own grey. */
+  imageMissing: boolean;
+  fits: WallpaperFit[];
   scannedAt: number;
 }
 

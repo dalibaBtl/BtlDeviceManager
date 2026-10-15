@@ -105,8 +105,8 @@ there. Do not install packages from the app.
 ## State of the repository
 
 Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
-`Displays`, `Virtual machine`, `Status`), a live `Performance` panel and a
-`Keyboard` panel.
+`Displays`, `Virtual machine`, `Status`), a live `Performance` panel, and
+`Keyboard` and `Wallpaper` panels.
 `docs/adr/0001` says where and why it diverges from bgcm.
 
 - `src/printers/` is the `btl-printers` CLI (`cli/btl-printers.js` loads the
@@ -136,6 +136,15 @@ Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
   keyboard back to a variant) and renders `config.d/keyboard.conf`.
   `set <variant>` writes the file and applies the same lines with `swaymsg`;
   it is a direct action, like `console-workspace`.
+- `src/wallpaper/` is the `btl-wallpaper` CLI: `config.ts` parses and
+  renders the `output * bg …` line (only the all-outputs form) and tells PNG
+  from JPEG by magic bytes; `cli.ts` copies a picture under
+  `~/.local/share/btl-device-manager/wallpapers/<sha256>.<ext>` (sway does not
+  expand `~`, and the original may move), rewrites `config.d/wallpaper.conf`
+  whole and applies it with `swaymsg`. The app owns that file. The server
+  streams an upload into `~/.cache/btl-device-manager/uploads/` (64 MiB cap),
+  passes it to `set-image` and deletes it; `GET /api/wallpaper/image` serves
+  only the picture the last listing names.
 - `src/vm/` is the `btl-vm` CLI: `virsh.ts` parses `dominfo` (virsh has no
   JSON; `list --all --name` plus one `dominfo` per domain copes with names
   containing spaces), `settings.ts` reads the `set $ws… "…"` workspace names
@@ -169,7 +178,7 @@ Done: the skeleton, all four panels from `docs/IDEA.md` (`Printers`,
   before any shell inherits it.
 - `src/server/main.ts` is the hub; `cli-source.ts` runs `<cli> list --json`
   for each feature (`CliSource<R>` is generic over the parsed result: lists
-  for three panels, one object for status and keyboard) and holds the watchers
+  for three panels, one object for status, keyboard and wallpaper) and holds the watchers
   (`/etc/cups`, `swaymsg -t subscribe` for outputs and inputs,
   `virsh event --loop`, `nmcli monitor`).
   `LiveSource` is the other kind of feed: it loops a CLI only while a window

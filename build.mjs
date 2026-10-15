@@ -63,6 +63,13 @@ const keyboardCli = {
 };
 
 /** @type {import('esbuild').BuildOptions} */
+const wallpaperCli = {
+  ...node,
+  entryPoints: ['src/wallpaper/cli.ts'],
+  outfile: 'dist/wallpaper-cli.js',
+};
+
+/** @type {import('esbuild').BuildOptions} */
 const web = {
   entryPoints: ['src/web/main.tsx'],
   outfile: 'dist/web/main.js',
@@ -80,7 +87,7 @@ const web = {
 await mkdir('dist/web', { recursive: true });
 await cp('src/web/index.html', 'dist/web/index.html');
 
-const all = [server, printersCli, displaysCli, vmCli, statusCli, keyboardCli, web];
+const all = [server, printersCli, displaysCli, vmCli, statusCli, keyboardCli, wallpaperCli, web];
 if (watch) {
   const contexts = await Promise.all(all.map(context));
   await Promise.all(contexts.map((c) => c.watch()));

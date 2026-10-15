@@ -35,7 +35,11 @@ body {
   overflow: hidden;
 }
 
-button {
+button,
+label.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: var(--bg-hover);
   color: var(--fg);
   border: 1px solid var(--border);
@@ -44,14 +48,17 @@ button {
   font: inherit;
   cursor: pointer;
 }
-button:hover:not(:disabled) {
+button:hover:not(:disabled),
+label.button:hover:not(.disabled) {
   border-color: var(--fg-dim);
 }
-button:disabled {
+button:disabled,
+label.button.disabled {
   opacity: 0.5;
   cursor: default;
 }
-button.primary {
+button.primary,
+label.button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
@@ -451,6 +458,29 @@ select.mode {
   display: flex;
   gap: 6px;
   margin: 4px 0 8px;
+}
+.wallpaper-preview {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  max-width: 480px;
+  margin: 4px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.wallpaper-preview img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+input.swatch {
+  width: 28px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: none;
+  vertical-align: middle;
+  cursor: pointer;
 }
 input.try {
   width: 100%;

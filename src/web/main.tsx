@@ -10,6 +10,7 @@ import { TerminalPane } from './components/TerminalPane.jsx';
 import { PerformancePanel } from './components/PerformancePanel.jsx';
 import { StatusPanel } from './components/StatusPanel.jsx';
 import { VmPanel } from './components/VmPanel.jsx';
+import { WallpaperPanel } from './components/WallpaperPanel.jsx';
 import { applyServerMessage, notices, selectedPanel } from './state.js';
 import './styles.css';
 
@@ -89,6 +90,7 @@ function App() {
         {selectedPanel.value === 'printers' && <PrintersPanel />}
         {selectedPanel.value === 'displays' && <DisplaysPanel />}
         {selectedPanel.value === 'keyboard' && <KeyboardPanel />}
+        {selectedPanel.value === 'wallpaper' && <WallpaperPanel />}
         {selectedPanel.value === 'vm' && <VmPanel />}
         {selectedPanel.value === 'status' && <StatusPanel />}
         {selectedPanel.value === 'performance' && <PerformancePanel />}
