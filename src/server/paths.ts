@@ -92,6 +92,12 @@ export function statusCliPath(): string {
   return path.resolve(here, '..', 'cli', 'btl-status.js');
 }
 
+/** Absolute path of `cli/btl-keyboard.js` in this clone. */
+export function keyboardCliPath(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, '..', 'cli', 'btl-keyboard.js');
+}
+
 /** Where the server stores layout files for `btl-displays apply <file>`. */
 export function layoutsDir(): string {
   return path.join(cacheDir(), 'layouts');

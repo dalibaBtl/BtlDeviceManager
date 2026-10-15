@@ -4,6 +4,7 @@ import { socket } from './api.js';
 import { Dialogs } from './components/Dialogs.jsx';
 import { Nav } from './components/Nav.jsx';
 import { DisplaysPanel } from './components/DisplaysPanel.jsx';
+import { KeyboardPanel } from './components/KeyboardPanel.jsx';
 import { PrintersPanel } from './components/PrintersPanel.jsx';
 import { TerminalPane } from './components/TerminalPane.jsx';
 import { PerformancePanel } from './components/PerformancePanel.jsx';
@@ -87,6 +88,7 @@ function App() {
       <div class="middle" style={{ gridTemplateRows: `minmax(${MIN_PANEL}px, 1fr) 6px ${term}px` }}>
         {selectedPanel.value === 'printers' && <PrintersPanel />}
         {selectedPanel.value === 'displays' && <DisplaysPanel />}
+        {selectedPanel.value === 'keyboard' && <KeyboardPanel />}
         {selectedPanel.value === 'vm' && <VmPanel />}
         {selectedPanel.value === 'status' && <StatusPanel />}
         {selectedPanel.value === 'performance' && <PerformancePanel />}

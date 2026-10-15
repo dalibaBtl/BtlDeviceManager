@@ -3,7 +3,7 @@
 // view code and to assert which actions appear for which printer state.
 import { render } from 'preact-render-to-string';
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { Printer, VirtualMachine } from '../src/shared/types.js';
+import type { KeyboardState, Printer, VirtualMachine } from '../src/shared/types.js';
 
 beforeAll(() => {
   // The API client reads these at import time.
@@ -348,6 +348,49 @@ describe('VmPanel', () => {
     expect(formatMemory(1536)).toBe('1.5 GiB');
     expect(formatMemory(512)).toBe('512 MiB');
     expect(formatMemory(1000)).toBe('1000 MiB');
+  });
+});
+
+describe('KeyboardPanel', () => {
+  const base: KeyboardState = {
+    offered: [
+      { variant: 'qwerty', label: 'Czech QWERTY', xkbName: 'Czech (QWERTY)' },
+      { variant: 'basic', label: 'Czech QWERTZ', xkbName: 'Czech' },
+    ],
+    current: 'qwerty',
+    active: ['Czech (QWERTY)'],
+    saved: null,
+    scannedAt: Date.now(),
+  };
+
+  async function loadKeyboard() {
+    const state = await import('../src/web/state.js');
+    const panel = await import('../src/web/components/KeyboardPanel.jsx');
+    return { state, ...panel };
+  }
+
+  it('marks the layout in use and shows the CLI error verbatim', async () => {
+    const { state, KeyboardPanel } = await loadKeyboard();
+    state.keyboardError.value = null;
+    state.keyboard.value = base;
+    const html = render(<KeyboardPanel />);
+    expect(html).toContain('<button class="primary" aria-pressed="true">Czech QWERTY</button>');
+    expect(html).toContain('aria-pressed="false">Czech QWERTZ</button>');
+    expect(html).toContain('keeps its own');
+    state.keyboardError.value = 'btl-keyboard: swaymsg: unable to connect';
+    expect(render(<KeyboardPanel />)).toContain('unable to connect');
+    state.keyboardError.value = null;
+  });
+
+  it('says what it sees when no offered layout is in use', async () => {
+    const { describeActive } = await loadKeyboard();
+    expect(describeActive({ ...base, current: null, active: [] })).toBe('no keyboard connected');
+    expect(describeActive({ ...base, current: null, active: ['Czech', 'Czech (QWERTY)'] })).toBe(
+      'keyboards differ: Czech, Czech (QWERTY)',
+    );
+    expect(describeActive({ ...base, current: null, active: ['English (US)'] })).toContain(
+      'set elsewhere',
+    );
   });
 });
 

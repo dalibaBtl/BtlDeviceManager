@@ -13,6 +13,7 @@ import type {
   DisplayLayout,
   DisplayOutput,
   FailedUnit,
+  KeyboardState,
   PerfSample,
   Printer,
   ServerMessage,
@@ -29,12 +30,14 @@ import { isDown, isUp } from '../vm/virsh.js';
 import {
   CliSource,
   LiveSource,
+  parseKeyboard,
   parseList,
   parseStatus,
   runCli,
   watchCups,
   watchDist,
   watchNetwork,
+  watchSwayInputs,
   watchSwayOutputs,
   watchVirshEvents,
   type ListResult,
@@ -43,6 +46,7 @@ import {
   appCommand,
   cacheDir,
   displaysCliPath,
+  keyboardCliPath,
   layoutsDir,
   printersCliPath,
   printersCommand,
@@ -111,6 +115,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     displaysCli: displaysCliPath(),
     vmCli: vmCliPath(),
     statusCli: statusCliPath(),
+    keyboardCli: keyboardCliPath(),
     appCommand: appCommand(),
     root: repoRoot(),
   });
@@ -228,6 +233,7 @@ interface AppPaths {
   displaysCli: string;
   vmCli: string;
   statusCli: string;
+  keyboardCli: string;
   /** `btl-device-manager` or the launcher's absolute path; see {@link appCommand}. */
   appCommand: string;
   /** The clone the server runs from; what `update` works on and whose `dist/` is watched. */
@@ -237,6 +243,12 @@ interface AppPaths {
 /** Snapshot of the status read as pushed to clients. */
 interface StatusState {
   status: SystemStatus | null;
+  error: string | null;
+}
+
+/** Snapshot of the keyboard read as pushed to clients. */
+interface KeyboardSnapshot {
+  keyboard: KeyboardState | null;
   error: string | null;
 }
 
@@ -259,11 +271,13 @@ class App {
     settings: NO_VM_SETTINGS,
   };
   private status: StatusState = { status: null, error: null };
+  private keyboard: KeyboardSnapshot = { keyboard: null, error: null };
   private scanning = false;
   private readonly printerSource: CliSource<ListResult<Printer>>;
   private readonly displaySource: CliSource<ListResult<DisplayOutput>>;
   private readonly vmSource: CliSource<ListResult<VirtualMachine>>;
   private readonly statusSource: CliSource<SystemStatus>;
+  private readonly keyboardSource: CliSource<KeyboardState>;
   private readonly perfLive: LiveSource<PerfSample>;
   private readonly vmStatsLive: LiveSource<VmStats[]>;
   private lastPerf: PerfSample | null = null;
@@ -320,6 +334,12 @@ class App {
       this.broadcast({ type: 'status', ...this.status });
     };
 
+    this.keyboardSource = new CliSource(paths.keyboardCli, parseKeyboard);
+    this.keyboardSource.onUpdate = (keyboard, error) => {
+      this.keyboard = { keyboard, error };
+      this.broadcast({ type: 'keyboard', ...this.keyboard });
+    };
+
     this.perfLive = new LiveSource(paths.statusCli, ['perf', '--json'], parsePerf);
     this.perfLive.onSample = (sample) => {
       this.lastPerf = sample;
@@ -356,10 +376,12 @@ class App {
     void this.displaySource.refresh();
     void this.vmSource.refresh();
     void this.statusSource.refresh();
+    void this.keyboardSource.refresh();
     this.printerSource.watch(watchCups);
     this.displaySource.watch(watchSwayOutputs);
     this.vmSource.watch(watchVirshEvents);
     this.statusSource.watch(watchNetwork);
+    this.keyboardSource.watch(watchSwayInputs);
     this.refreshTimer = setInterval(() => {
       void this.printerSource.refresh();
       void this.statusSource.refresh();
@@ -409,6 +431,7 @@ class App {
     this.displaySource.stop();
     this.vmSource.stop();
     this.statusSource.stop();
+    this.keyboardSource.stop();
     this.perfLive.stop();
     this.vmStatsLive.stop();
     for (const c of this.clients) {
@@ -447,6 +470,28 @@ class App {
 
   statusSnapshot(): StatusState {
     return this.status;
+  }
+
+  refreshKeyboard(): Promise<void> {
+    return this.keyboardSource.refresh();
+  }
+
+  keyboardSnapshot(): KeyboardSnapshot {
+    return this.keyboard;
+  }
+
+  /**
+   * Switches the keyboard layout. Direct, like {@link setConsoleWorkspace}:
+   * two lines in the user's own sway config and a `swaymsg` that cannot need
+   * root. The variant must be one the last listing offered.
+   */
+  async setKeyboardLayout(variant: string): Promise<void> {
+    const offered = this.keyboard.keyboard?.offered ?? [];
+    if (!offered.some((l) => l.variant === variant)) {
+      throw new Error(`no keyboard layout called ${variant}; refresh and try again`);
+    }
+    await runCli(this.paths.keyboardCli, ['set', variant]);
+    await this.keyboardSource.refresh();
   }
 
   /**
@@ -523,6 +568,7 @@ class App {
     this.send(client, { type: 'displays', ...this.displays });
     this.send(client, { type: 'vms', ...this.vms });
     this.send(client, { type: 'status', ...this.status });
+    this.send(client, { type: 'keyboard', ...this.keyboard });
     this.send(client, { type: 'scanning', scanning: this.scanning });
     this.send(client, this.updateSnapshot());
 
@@ -814,6 +860,20 @@ async function handleHttp(
       if (typeof body.profile !== 'string') throw new Error('missing profile');
       await app.setPowerProfile(body.profile);
       sendJson(res, 200, { ok: true });
+      return;
+    }
+    case 'GET /api/keyboard':
+      sendJson(res, 200, app.keyboardSnapshot());
+      return;
+    case 'POST /api/keyboard/refresh':
+      await app.refreshKeyboard();
+      sendJson(res, 200, app.keyboardSnapshot());
+      return;
+    case 'POST /api/keyboard/layout': {
+      const body = await readJson(req);
+      if (typeof body.variant !== 'string') throw new Error('missing variant');
+      await app.setKeyboardLayout(body.variant);
+      sendJson(res, 200, app.keyboardSnapshot());
       return;
     }
     case 'POST /api/vms/refresh':

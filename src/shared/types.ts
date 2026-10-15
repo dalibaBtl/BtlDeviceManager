@@ -110,6 +110,7 @@ export type ServerMessage =
       error: string | null;
     }
   | { type: 'status'; status: SystemStatus | null; error: string | null }
+  | { type: 'keyboard'; keyboard: KeyboardState | null; error: string | null }
   | { type: 'perf'; sample: PerfSample }
   | { type: 'vm-stats'; items: VmStats[] }
   | { type: 'update'; state: UpdateState | null; built: boolean }
@@ -285,6 +286,44 @@ export interface VmSettings {
 export interface VmList {
   vms: VirtualMachine[];
   settings: VmSettings;
+  scannedAt: number;
+}
+
+// ---- keyboard -----------------------------------------------------------------
+
+/** One layout the Keyboard panel offers. */
+export interface KeyboardLayoutOption {
+  /** xkb variant of the `cz` layout, the argument of `btl-keyboard set`. */
+  variant: string;
+  /** What the panel shows. */
+  label: string;
+  /** xkb's description, which is all sway reports for the active layout. */
+  xkbName: string;
+}
+
+/** One keyboard device from `swaymsg -t get_inputs`. */
+export interface KeyboardDevice {
+  identifier: string;
+  name: string;
+  /** xkb description of the active layout, e.g. `Czech (QWERTY)`. */
+  layout: string | null;
+}
+
+/** Result of one `btl-keyboard list --json` run. */
+export interface KeyboardState {
+  offered: KeyboardLayoutOption[];
+  /**
+   * The offered variant every keyboard uses now; `null` with no keyboard,
+   * keyboards that disagree, or a layout that is not offered.
+   */
+  current: string | null;
+  /** Distinct layout descriptions on the connected keyboards; empty with none connected. */
+  active: string[];
+  /**
+   * Variant stored in `~/.config/sway/config.d/keyboard.conf`; `null` when the
+   * file is absent and the main sway config decides.
+   */
+  saved: string | null;
   scannedAt: number;
 }
 

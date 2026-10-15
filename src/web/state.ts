@@ -1,6 +1,7 @@
 import { signal } from '@preact/signals';
 import type {
   DisplayOutput,
+  KeyboardState,
   PerfSample,
   Printer,
   ServerMessage,
@@ -20,10 +21,11 @@ import { api, socket } from './api.js';
  */
 
 /** The panels in the left navigation; one per feature, in the order they appear. */
-export type Panel = 'printers' | 'displays' | 'vm' | 'status' | 'performance';
+export type Panel = 'printers' | 'displays' | 'keyboard' | 'vm' | 'status' | 'performance';
 export const PANELS: { id: Panel; label: string }[] = [
   { id: 'printers', label: 'Printers' },
   { id: 'displays', label: 'Displays' },
+  { id: 'keyboard', label: 'Keyboard' },
   { id: 'vm', label: 'Virtual machine' },
   { id: 'status', label: 'Status' },
   { id: 'performance', label: 'Performance' },
@@ -45,6 +47,9 @@ export const vms = signal<VirtualMachine[]>([]);
 export const vmsError = signal<string | null>(null);
 export const vmsScannedAt = signal<number | null>(null);
 export const vmSettings = signal<VmSettings>({ workspaces: [] });
+
+export const keyboard = signal<KeyboardState | null>(null);
+export const keyboardError = signal<string | null>(null);
 
 export const status = signal<SystemStatus | null>(null);
 export const statusError = signal<string | null>(null);
@@ -70,6 +75,15 @@ export function watchLive(topic: WatchTopic, on: boolean): void {
 socket.onOpen(() => {
   for (const [topic, n] of watchCounts) if (n > 0) socket.send({ type: 'watch', topic, on: true });
 });
+
+export function refreshKeyboard(): Promise<void> {
+  return guard(() => api.post('/api/keyboard/refresh')).then(() => undefined);
+}
+
+/** Switches the keyboard layout; sway's input event brings the new state to every window. */
+export function setKeyboardLayout(variant: string): Promise<void> {
+  return guard(() => api.post('/api/keyboard/layout', { variant })).then(() => undefined);
+}
 
 /** Switches the power profile; the next live sample shows the result. */
 export function setPowerProfile(profile: string): Promise<void> {
@@ -170,6 +184,10 @@ export function applyServerMessage(msg: ServerMessage): void {
     case 'status':
       status.value = msg.status;
       statusError.value = msg.error;
+      break;
+    case 'keyboard':
+      keyboard.value = msg.keyboard;
+      keyboardError.value = msg.error;
       break;
     case 'perf':
       perf.value = msg.sample;

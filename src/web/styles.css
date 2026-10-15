@@ -446,6 +446,24 @@ select.mode {
   overflow: auto;
 }
 
+/* keyboard panel */
+.choices {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+input.try {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0 4px;
+  background: var(--bg-hover);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
 /* status panel */
 .status {
   display: grid;

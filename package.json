@@ -1,7 +1,7 @@
 {
   "name": "btl-device-manager",
   "version": "0.1.0",
-  "description": "BTL Device Manager - printers, displays, virtual machine and status of the workstation you are sitting at",
+  "description": "BTL Device Manager - printers, displays, keyboard, virtual machine and status of the workstation you are sitting at",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -17,7 +17,8 @@
     "btl-printers": "cli/btl-printers.js",
     "btl-displays": "cli/btl-displays.js",
     "btl-vm": "cli/btl-vm.js",
-    "btl-status": "cli/btl-status.js"
+    "btl-status": "cli/btl-status.js",
+    "btl-keyboard": "cli/btl-keyboard.js"
   },
   "scripts": {
     "build": "node build.mjs",

@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { watch as fsWatch } from 'node:fs';
-import type { SystemStatus } from '../shared/types.js';
+import type { KeyboardState, SystemStatus } from '../shared/types.js';
 
 /** Upper bound for one `list --json` run; mDNS browsing alone takes a few seconds. */
 const LIST_TIMEOUT_MS = 20_000;
@@ -157,6 +157,15 @@ export function parseStatus(text: string): SystemStatus {
   return data as SystemStatus;
 }
 
+/** Validates `btl-keyboard list --json` just enough: an object with an `offered` list. */
+export function parseKeyboard(text: string): KeyboardState {
+  const data = JSON.parse(text) as Partial<KeyboardState>;
+  if (!data || typeof data !== 'object' || !Array.isArray(data.offered)) {
+    throw new Error('CLI returned no keyboard state');
+  }
+  return data as KeyboardState;
+}
+
 /**
  * Watches CUPS's configuration directory so queues created in the terminal
  * show up on their own. CUPS rewrites `printers.conf` on every queue change;
@@ -204,6 +213,15 @@ export function watchDist(distDir: string, onChange: () => void): () => void {
  */
 export function watchSwayOutputs(onChange: () => void): () => void {
   return followStream('swaymsg', ['-t', 'subscribe', '["output"]', '-m'], 500, onChange);
+}
+
+/**
+ * Follows sway's input events, which fire when a keyboard is plugged in or its
+ * keymap changes, so a layout switched from the terminal or a sway reload shows
+ * up without a Refresh click.
+ */
+export function watchSwayInputs(onChange: () => void): () => void {
+  return followStream('swaymsg', ['-t', 'subscribe', '["input"]', '-m'], 500, onChange);
 }
 
 /**
